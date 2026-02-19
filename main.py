@@ -1,182 +1,256 @@
 import random
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup
+import sqlite3
+import time
+import os
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils import executor
+
+# ================= CONFIG =================
+TOKEN = os.getenv("BOT_TOKEN")
+
+if not TOKEN:
+    raise ValueError("BOT_TOKEN topilmadi")
+
+bot = Bot(token=TOKEN)
+dp = Dispatcher(bot)
+
+# ================= DATABASE =================
+conn = sqlite3.connect("casino.db")
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    balance INTEGER DEFAULT 1000,
+    last_bonus INTEGER DEFAULT 0
 )
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    MessageHandler,
-    filters
-)
+""")
+conn.commit()
 
-TOKEN = "TOKENINGIZNI_SHU_YERGA_YOZING"
-
-# O'yin ma'lumotlari
-user_game = {}
-
-# /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ================= MENU =================
+def main_menu():
     keyboard = [
-        [InlineKeyboardButton("🎮 O'yinlar", callback_data="games")]
+        [KeyboardButton("🎮 O‘yinlar")],
+        [KeyboardButton("🎁 Bonus"), KeyboardButton("👤 Profil")]
     ]
-    await update.message.reply_text(
-        "Xush kelibsiz!",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# O'yinlar menyusi
-async def games_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
+def games_menu():
     keyboard = [
-        [InlineKeyboardButton("💣 Mines", callback_data="mines")],
-        [InlineKeyboardButton("⬅️ Orqaga", callback_data="back")]
+        [KeyboardButton("💣 Mines")],
+        [KeyboardButton("🔙 Orqaga")]
     ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-    await query.edit_message_text(
-        "O'yin tanlang:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+# ================= GLOBAL =================
+awaiting_bet = {}
+mines_games = {}
 
-# Mines tanlandi
-async def mines_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+# ================= START =================
+@dp.message_handler(commands=['start'])
+async def start(message: types.Message):
+    cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)",
+                   (message.from_user.id,))
+    conn.commit()
 
-    await query.edit_message_text("💰 Stavka kiriting (min 10):")
+    await message.answer("🎰 Casino Bot", reply_markup=main_menu())
 
-    context.user_data["awaiting_bet"] = True
+# ================= PROFILE =================
+@dp.message_handler(lambda m: m.text == "👤 Profil")
+async def profile(message: types.Message):
+    cursor.execute("SELECT balance FROM users WHERE user_id=?",
+                   (message.from_user.id,))
+    bal = cursor.fetchone()[0]
+    await message.answer(f"💰 Balans: {bal}")
 
-# Stavka qabul qilish
-async def get_bet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get("awaiting_bet"):
+# ================= BONUS =================
+@dp.message_handler(lambda m: m.text == "🎁 Bonus")
+async def bonus(message: types.Message):
+    cursor.execute("SELECT last_bonus FROM users WHERE user_id=?",
+                   (message.from_user.id,))
+    last = cursor.fetchone()[0]
+
+    now = int(time.time())
+
+    if now - last < 86400:
+        await message.answer("⏳ 24 soatda 1 marta!")
         return
 
-    bet = int(update.message.text)
+    cursor.execute("UPDATE users SET balance=balance+100, last_bonus=? WHERE user_id=?",
+                   (now, message.from_user.id))
+    conn.commit()
 
-    if bet < 10:
-        await update.message.reply_text("❌ Minimal stavka 10!")
+    await message.answer("🎁 +100 coin qo‘shildi!")
+
+# ================= GAMES =================
+@dp.message_handler(lambda m: m.text == "🎮 O‘yinlar")
+async def games_handler(message: types.Message):
+    await message.answer("🎮 O‘yin tanlang:", reply_markup=games_menu())
+
+@dp.message_handler(lambda m: m.text == "🔙 Orqaga")
+async def back_handler(message: types.Message):
+    await message.answer("🏠 Asosiy menyu", reply_markup=main_menu())
+
+# ================= MINES START =================
+@dp.message_handler(lambda m: m.text == "💣 Mines")
+async def mines_start(message: types.Message):
+    awaiting_bet[message.from_user.id] = True
+    await message.answer("💵 Stavka kiriting (min 10):")
+
+# ================= BET =================
+@dp.message_handler()
+async def bet_handler(message: types.Message):
+    uid = message.from_user.id
+    text = message.text
+
+    if uid not in awaiting_bet:
         return
 
-    context.user_data["awaiting_bet"] = False
-    context.user_data["bet"] = bet
+    if not text.isdigit():
+        return
 
-    # Yutuq quti
-    win_box = random.randint(0, 8)
-    context.user_data["win_box"] = win_box
-    context.user_data["opened"] = False
+    bet = int(text)
 
-    # 3x3 katta kvadrat qutilar
-    keyboard = []
-    for i in range(3):
-        row = []
-        for j in range(3):
-            index = i * 3 + j
-            row.append(
-                InlineKeyboardButton(
-                    "📦 QUTI",
-                    callback_data=f"box_{index}"
-                )
+    cursor.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
+    bal = cursor.fetchone()[0]
+
+    if bet < 10 or bet > bal:
+        await message.answer("❌ Stavka noto‘g‘ri")
+        return
+
+    bombs = random.sample(range(10), 4)
+
+    mines_games[uid] = {
+        "bet": bet,
+        "bombs": bombs,
+        "opened": [],
+        "multiplier": 1
+    }
+
+    keyboard = InlineKeyboardMarkup(row_width=2)
+
+    for i in range(10):
+        keyboard.insert(
+            InlineKeyboardButton("📦 QUTI", callback_data=f"mine_{i}")
+        )
+
+    keyboard.add(
+        InlineKeyboardButton("💵 Pulni olish", callback_data="cashout")
+    )
+
+    await message.answer("📦 Qutini tanlang:", reply_markup=keyboard)
+
+    del awaiting_bet[uid]
+
+# ================= MINES CALLBACK =================
+@dp.callback_query_handler(lambda c: c.data.startswith("mine_") or c.data == "cashout")
+async def mines_callback(callback: types.CallbackQuery):
+    uid = callback.from_user.id
+
+    if uid not in mines_games:
+        await callback.answer("O‘yin tugagan!", show_alert=True)
+        return
+
+    game = mines_games[uid]
+    bet = game["bet"]
+    bombs = game["bombs"]
+    opened = game["opened"]
+
+    # ===== CASHOUT =====
+    if callback.data == "cashout":
+
+        if len(opened) == 0:
+            await callback.answer("Avval quti oching!", show_alert=True)
+            return
+
+        win_amount = int(bet * game["multiplier"])
+
+        cursor.execute("UPDATE users SET balance=balance+? WHERE user_id=?",
+                       (win_amount, uid))
+        conn.commit()
+
+        await callback.message.edit_text(
+            f"💰 Pul olindi!\nMultiplier: x{game['multiplier']}\nYutuq: {win_amount}"
+        )
+
+        del mines_games[uid]
+        return
+
+    # ===== QUTI BOSILDI =====
+    index = int(callback.data.split("_")[1])
+
+    if index in opened:
+        await callback.answer("Bu quti ochilgan!")
+        return
+
+    # ===== BOMBA =====
+    if index in bombs:
+
+        cursor.execute("UPDATE users SET balance=balance-? WHERE user_id=?",
+                       (bet, uid))
+        conn.commit()
+
+        keyboard = InlineKeyboardMarkup(row_width=2)
+
+        for i in range(10):
+            if i in bombs:
+                text_btn = "💣 BOMBA"
+            else:
+                text_btn = "✅ XAVFSIZ"
+
+            keyboard.insert(
+                InlineKeyboardButton(text_btn, callback_data="end")
             )
-        keyboard.append(row)
 
-    keyboard.append(
-        [InlineKeyboardButton("💰 Pulni olish", callback_data="cashout")]
-    )
+        await callback.message.edit_text(
+            "💥 TUZOQGA TUSHDINGIZ!\nPul yo‘qotildi!",
+            reply_markup=keyboard
+        )
 
-    await update.message.reply_text(
-        "📦 Qutini tanlang:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-# Quti bosilganda
-async def open_box(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if context.user_data.get("opened"):
+        del mines_games[uid]
         return
 
-    index = int(query.data.split("_")[1])
-    win_box = context.user_data["win_box"]
-    bet = context.user_data["bet"]
+    # ===== XAVFSIZ =====
+    opened.append(index)
 
-    context.user_data["opened"] = True
+    if len(opened) == 1:
+        game["multiplier"] = 1.5
+    elif len(opened) == 2:
+        game["multiplier"] = 2
+    elif len(opened) == 3:
+        game["multiplier"] = 2.6
+    elif len(opened) >= 4:
+        game["multiplier"] = 4
 
-    if index == win_box:
-        win_amount = bet * 2
-        text = f"🎉 Siz {win_amount} so‘m yutdingiz!"
-    else:
-        text = "💣 Mina chiqdi! Yutqazdingiz!"
+    potential = int(bet * game["multiplier"])
 
-    # Qutilarni blok qilish
-    keyboard = []
-    for i in range(3):
-        row = []
-        for j in range(3):
-            row.append(
-                InlineKeyboardButton(
-                    "❌",
-                    callback_data="blocked"
-                )
-            )
-        keyboard.append(row)
+    keyboard = InlineKeyboardMarkup(row_width=2)
 
-    await query.edit_message_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+    for i in range(10):
+        if i in opened:
+            text_btn = "✅ OCHILDI"
+        else:
+            text_btn = "📦 QUTI"
+
+        keyboard.insert(
+            InlineKeyboardButton(text_btn, callback_data=f"mine_{i}")
+        )
+
+    keyboard.add(
+        InlineKeyboardButton("💵 Pulni olish", callback_data="cashout")
     )
 
-# Pulni olish
-async def cashout(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    if context.user_data.get("opened"):
-        await query.edit_message_text("O'yin tugadi!")
-    else:
-        await query.edit_message_text("Pulni oldingiz!")
-
-# Orqaga
-async def back(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    keyboard = [
-        [InlineKeyboardButton("🎮 O'yinlar", callback_data="games")]
-    ]
-
-    await query.edit_message_text(
-        "Asosiy menyu",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+    await callback.message.edit_text(
+        f"🎉 Siz x{game['multiplier']} yutdingiz!\n"
+        f"💰 Hozirgi yutuq: {potential}\n\n"
+        "Davom etasizmi yoki pulni olasizmi?",
+        reply_markup=keyboard
     )
 
-# Callback handler
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = update.callback_query.data
+    await callback.answer()
 
-    if data == "games":
-        await games_menu(update, context)
-    elif data == "mines":
-        await mines_start(update, context)
-    elif data.startswith("box_"):
-        await open_box(update, context)
-    elif data == "cashout":
-        await cashout(update, context)
-    elif data == "back":
-        await back(update, context)
-
-# MAIN
-app = ApplicationBuilder().token(TOKEN).build()
-
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(button_handler))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, get_bet))
-
-print("Bot ishga tushdi...")
-app.run_polling()
+# ================= RUN =================
+if __name__ == "__main__":
+    executor.start_polling(dp, skip_updates=True)
