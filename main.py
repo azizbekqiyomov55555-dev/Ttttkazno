@@ -9,12 +9,9 @@ from aiogram.utils import executor
 
 # ================= CONFIG =================
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID")
 
-if not TOKEN or not ADMIN_ID:
-    raise ValueError("TOKEN yoki ADMIN_ID topilmadi")
-
-ADMIN_ID = int(ADMIN_ID)
+if not TOKEN:
+    raise ValueError("BOT_TOKEN topilmadi")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
@@ -32,7 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
 """)
 conn.commit()
 
-# ================= MENUS =================
+# ================= MENU =================
 def main_menu():
     keyboard = [
         [KeyboardButton("🎮 O‘yinlar")],
@@ -104,7 +101,7 @@ async def mines_start(message: types.Message):
 
 # ================= BET =================
 @dp.message_handler()
-async def universal(message: types.Message):
+async def bet_handler(message: types.Message):
     uid = message.from_user.id
     text = message.text
 
@@ -132,7 +129,7 @@ async def universal(message: types.Message):
         "multiplier": 1
     }
 
-    keyboard = InlineKeyboardMarkup(row_width=2)  # KATTA QUTILAR (2 tadan)
+    keyboard = InlineKeyboardMarkup(row_width=2)
 
     for i in range(10):
         keyboard.insert(
@@ -144,6 +141,7 @@ async def universal(message: types.Message):
     )
 
     await message.answer("📦 Qutini tanlang:", reply_markup=keyboard)
+
     del awaiting_bet[uid]
 
 # ================= MINES CALLBACK =================
@@ -152,7 +150,7 @@ async def mines_callback(callback: types.CallbackQuery):
     uid = callback.from_user.id
 
     if uid not in mines_games:
-        await callback.answer("O‘yin tugagan", show_alert=True)
+        await callback.answer("O‘yin tugagan!", show_alert=True)
         return
 
     game = mines_games[uid]
@@ -180,14 +178,14 @@ async def mines_callback(callback: types.CallbackQuery):
         del mines_games[uid]
         return
 
-    # ===== BOX CLICK =====
+    # ===== QUTI BOSILDI =====
     index = int(callback.data.split("_")[1])
 
     if index in opened:
         await callback.answer("Bu quti ochilgan!")
         return
 
-    # TUZOQ
+    # ===== BOMBA =====
     if index in bombs:
 
         cursor.execute("UPDATE users SET balance=balance-? WHERE user_id=?",
@@ -198,7 +196,7 @@ async def mines_callback(callback: types.CallbackQuery):
 
         for i in range(10):
             if i in bombs:
-                text_btn = "💣 TUZOQ"
+                text_btn = "💣 BOMBA"
             else:
                 text_btn = "✅ XAVFSIZ"
 
@@ -214,7 +212,7 @@ async def mines_callback(callback: types.CallbackQuery):
         del mines_games[uid]
         return
 
-    # ===== SAFE =====
+    # ===== XAVFSIZ =====
     opened.append(index)
 
     if len(opened) == 1:
@@ -226,7 +224,7 @@ async def mines_callback(callback: types.CallbackQuery):
     elif len(opened) >= 4:
         game["multiplier"] = 4
 
-    potential_win = int(bet * game["multiplier"])
+    potential = int(bet * game["multiplier"])
 
     keyboard = InlineKeyboardMarkup(row_width=2)
 
@@ -245,9 +243,9 @@ async def mines_callback(callback: types.CallbackQuery):
     )
 
     await callback.message.edit_text(
-        f"🎉 Siz hozir x{game['multiplier']} yutyapsiz!\n"
-        f"💰 Potensial yutuq: {potential_win}\n\n"
-        "Yana davom etasizmi yoki pulni olasizmi?",
+        f"🎉 Siz x{game['multiplier']} yutdingiz!\n"
+        f"💰 Hozirgi yutuq: {potential}\n\n"
+        "Davom etasizmi yoki pulni olasizmi?",
         reply_markup=keyboard
     )
 
