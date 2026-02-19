@@ -44,10 +44,31 @@ def main_menu():
 
 def games_menu():
     keyboard = [
-        [KeyboardButton("💣 Mines")],
+        [KeyboardButton("🎲 Dice"), KeyboardButton("🎯 Dart")],
+        [KeyboardButton("⚽ Penalty"), KeyboardButton("🎰 Slot")],
+        [KeyboardButton("🪙 Coin"), KeyboardButton("🃏 BlackJack")],
+        [KeyboardButton("🏀 Basket"), KeyboardButton("🎳 Bowling")],
+        [KeyboardButton("🎮 Lucky"), KeyboardButton("💣 Mines")],
         [KeyboardButton("🔙 Orqaga")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+# ================= OTHER GAMES =================
+
+GAME_RATES = {
+    "🎲 Dice": 0.45,
+    "🎯 Dart": 0.40,
+    "⚽ Penalty": 0.50,
+    "🎰 Slot": 0.35,
+    "🪙 Coin": 0.50,
+    "🃏 BlackJack": 0.42,
+    "🏀 Basket": 0.48,
+    "🎳 Bowling": 0.46,
+    "🎮 Lucky": 0.30
+}
+
+awaiting_bet = {}
+current_game = {}
 
 # ================= MINES GAME =================
 
@@ -55,8 +76,8 @@ mines_games = {}
 
 def mines_keyboard(game):
     kb = InlineKeyboardMarkup(row_width=5)
-    buttons = []
 
+    buttons = []
     for i in range(15):
         if i in game["opened"]:
             if i in game["mines"]:
@@ -114,26 +135,42 @@ async def bonus(message: types.Message):
 
     await message.answer("🎁 +100 coin qo‘shildi!")
 
-# ================= GAMES =================
+# ================= GAMES MENU =================
 
 @dp.message_handler(lambda m: m.text == "🎮 O‘yinlar")
 async def games_handler(message: types.Message):
     await message.answer("🎮 O‘yin tanlang:", reply_markup=games_menu())
 
-@dp.message_handler(lambda m: m.text == "💣 Mines")
-async def mines_start(message: types.Message):
-    await message.answer("💵 Stavka kiriting (min 10):")
-    mines_games[message.from_user.id] = {"awaiting_bet": True}
+# ================= UNIVERSAL HANDLER =================
 
 @dp.message_handler()
-async def handle_bet(message: types.Message):
+async def universal(message: types.Message):
     uid = message.from_user.id
+    text = message.text
 
+    if text == "🔙 Orqaga":
+        await message.answer("🏠 Asosiy menyu", reply_markup=main_menu())
+        return
+
+    # MINES START
+    if text == "💣 Mines":
+        mines_games[uid] = {"awaiting_bet": True}
+        await message.answer("💵 Stavka kiriting (min 10):")
+        return
+
+    # OTHER GAMES
+    if text in GAME_RATES:
+        awaiting_bet[uid] = True
+        current_game[uid] = text
+        await message.answer(f"{text} o‘yini tanlandi!\n💵 Stavka kiriting (min 10):")
+        return
+
+    # BET FOR MINES
     if uid in mines_games and mines_games[uid].get("awaiting_bet"):
-        if not message.text.isdigit():
+        if not text.isdigit():
             return
 
-        bet = int(message.text)
+        bet = int(text)
 
         cursor.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
         bal = cursor.fetchone()[0]
@@ -148,16 +185,48 @@ async def handle_bet(message: types.Message):
             "bet": bet,
             "mines": mines,
             "opened": [],
-            "multiplier": 1.0,
-            "awaiting_bet": False
+            "multiplier": 1.0
         }
 
         await message.answer(
-            "💣 O‘yin boshlandi!\nQutini tanlang:",
+            f"💣 O‘yin boshlandi!\nMultiplier: 1.0x",
             reply_markup=mines_keyboard(mines_games[uid])
         )
+        return
 
-# ================= CALLBACK =================
+    # BET FOR OTHER GAMES
+    if uid in awaiting_bet and text.isdigit():
+        bet = int(text)
+
+        cursor.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
+        bal = cursor.fetchone()[0]
+
+        if bet < 10 or bet > bal:
+            await message.answer("❌ Stavka noto‘g‘ri")
+            return
+
+        game = current_game[uid]
+        win = random.random() < GAME_RATES[game]
+
+        if win:
+            profit = bet
+            cursor.execute("UPDATE users SET balance=balance+? WHERE user_id=?",
+                           (profit, uid))
+            result = f"🎉 YUTDINGIZ! +{profit}"
+        else:
+            cursor.execute("UPDATE users SET balance=balance-? WHERE user_id=?",
+                           (bet, uid))
+            result = f"😢 YUTQAZDINGIZ! -{bet}"
+
+        conn.commit()
+
+        del awaiting_bet[uid]
+        del current_game[uid]
+
+        await message.answer(result)
+        return
+
+# ================= MINES CALLBACK =================
 
 @dp.callback_query_handler(lambda c: c.data.startswith("mine_"))
 async def open_mine(callback: types.CallbackQuery):
@@ -174,27 +243,35 @@ async def open_mine(callback: types.CallbackQuery):
 
     game["opened"].append(index)
 
+    # AGAR MINA
     if index in game["mines"]:
         cursor.execute("UPDATE users SET balance=balance-? WHERE user_id=?",
                        (game["bet"], uid))
         conn.commit()
 
+        game["opened"] = list(range(15))
+
         await callback.message.edit_text(
             f"💥 Portladi!\n😢 -{game['bet']}",
-        )
-        del mines_games[uid]
-        return
-    else:
-        game["multiplier"] += 0.5
-
-        await callback.message.edit_reply_markup(
             reply_markup=mines_keyboard(game)
         )
 
-        await callback.answer(
-            f"🎉 Siz yutdingiz! {game['multiplier']}x",
-            show_alert=True
-        )
+        del mines_games[uid]
+        return
+
+    # AGAR XAVFSIZ
+    game["multiplier"] += 0.5
+    current_win = round(game["bet"] * game["multiplier"])
+
+    await callback.message.edit_text(
+        f"💣 Mines\n\n"
+        f"📈 Multiplier: {game['multiplier']}x\n"
+        f"💰 Hozirgi yutuq: {current_win}\n\n"
+        f"Qutini davom ettiring yoki yutuqni oling 👇",
+        reply_markup=mines_keyboard(game)
+    )
+
+# ================= CASHOUT =================
 
 @dp.callback_query_handler(lambda c: c.data == "cashout")
 async def cashout(callback: types.CallbackQuery):
@@ -204,7 +281,6 @@ async def cashout(callback: types.CallbackQuery):
         return
 
     game = mines_games[uid]
-
     profit = int(game["bet"] * game["multiplier"])
 
     cursor.execute("UPDATE users SET balance=balance+? WHERE user_id=?",
@@ -212,7 +288,7 @@ async def cashout(callback: types.CallbackQuery):
     conn.commit()
 
     await callback.message.edit_text(
-        f"💰 Yutuq olindi!\nMultiplier: {game['multiplier']}x\n+{profit}"
+        f"💰 Siz {game['multiplier']}x yutdingiz!\n+{profit}"
     )
 
     del mines_games[uid]
