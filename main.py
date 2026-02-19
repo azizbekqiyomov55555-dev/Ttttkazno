@@ -14,8 +14,6 @@ ADMIN_ID = os.getenv("ADMIN_ID")
 if not TOKEN or not ADMIN_ID:
     raise ValueError("TOKEN yoki ADMIN_ID topilmadi")
 
-ADMIN_ID = int(ADMIN_ID)
-
 bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
 
@@ -36,24 +34,29 @@ conn.commit()
 # ================= MENUS =================
 
 def main_menu():
-    keyboard = [
-        [KeyboardButton("🎮 O‘yinlar")],
-        [KeyboardButton("🎁 Bonus"), KeyboardButton("👤 Profil")]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    return ReplyKeyboardMarkup(resize_keyboard=True).add(
+        KeyboardButton("🎮 O‘yinlar")
+    ).add(
+        KeyboardButton("🎁 Bonus"),
+        KeyboardButton("👤 Profil")
+    )
 
 def games_menu():
-    keyboard = [
-        [KeyboardButton("🎲 Dice"), KeyboardButton("🎯 Dart")],
-        [KeyboardButton("⚽ Penalty"), KeyboardButton("🎰 Slot")],
-        [KeyboardButton("🪙 Coin"), KeyboardButton("🃏 BlackJack")],
-        [KeyboardButton("🏀 Basket"), KeyboardButton("🎳 Bowling")],
-        [KeyboardButton("🎮 Lucky"), KeyboardButton("💣 Mines")],
-        [KeyboardButton("🔙 Orqaga")]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    return ReplyKeyboardMarkup(resize_keyboard=True).add(
+        KeyboardButton("🎲 Dice"), KeyboardButton("🎯 Dart")
+    ).add(
+        KeyboardButton("⚽ Penalty"), KeyboardButton("🎰 Slot")
+    ).add(
+        KeyboardButton("🪙 Coin"), KeyboardButton("🃏 BlackJack")
+    ).add(
+        KeyboardButton("🏀 Basket"), KeyboardButton("🎳 Bowling")
+    ).add(
+        KeyboardButton("🎮 Lucky"), KeyboardButton("💣 Mines")
+    ).add(
+        KeyboardButton("🔙 Orqaga")
+    )
 
-# ================= OTHER GAMES =================
+# ================= SIMPLE GAMES =================
 
 GAME_RATES = {
     "🎲 Dice": 0.45,
@@ -70,7 +73,7 @@ GAME_RATES = {
 awaiting_bet = {}
 current_game = {}
 
-# ================= MINES GAME =================
+# ================= MINES =================
 
 mines_games = {}
 
@@ -112,7 +115,6 @@ async def profile(message: types.Message):
     cursor.execute("SELECT balance FROM users WHERE user_id=?",
                    (message.from_user.id,))
     bal = cursor.fetchone()[0]
-
     await message.answer(f"💰 Balans: {bal}")
 
 # ================= BONUS =================
@@ -135,13 +137,13 @@ async def bonus(message: types.Message):
 
     await message.answer("🎁 +100 coin qo‘shildi!")
 
-# ================= GAMES MENU =================
+# ================= MENU =================
 
 @dp.message_handler(lambda m: m.text == "🎮 O‘yinlar")
-async def games_handler(message: types.Message):
+async def games(message: types.Message):
     await message.answer("🎮 O‘yin tanlang:", reply_markup=games_menu())
 
-# ================= UNIVERSAL HANDLER =================
+# ================= UNIVERSAL =================
 
 @dp.message_handler()
 async def universal(message: types.Message):
@@ -162,10 +164,10 @@ async def universal(message: types.Message):
     if text in GAME_RATES:
         awaiting_bet[uid] = True
         current_game[uid] = text
-        await message.answer(f"{text} o‘yini tanlandi!\n💵 Stavka kiriting (min 10):")
+        await message.answer("💵 Stavka kiriting (min 10):")
         return
 
-    # BET FOR MINES
+    # MINES BET
     if uid in mines_games and mines_games[uid].get("awaiting_bet"):
         if not text.isdigit():
             return
@@ -179,22 +181,20 @@ async def universal(message: types.Message):
             await message.answer("❌ Stavka noto‘g‘ri")
             return
 
-        mines = random.sample(range(15), 8)
-
         mines_games[uid] = {
             "bet": bet,
-            "mines": mines,
+            "mines": random.sample(range(15), 8),
             "opened": [],
             "multiplier": 1.0
         }
 
         await message.answer(
-            f"💣 O‘yin boshlandi!\nMultiplier: 1.0x",
+            "💣 O‘yin boshlandi!\nMultiplier: 1.0x",
             reply_markup=mines_keyboard(mines_games[uid])
         )
         return
 
-    # BET FOR OTHER GAMES
+    # OTHER GAME BET
     if uid in awaiting_bet and text.isdigit():
         bet = int(text)
 
@@ -209,10 +209,9 @@ async def universal(message: types.Message):
         win = random.random() < GAME_RATES[game]
 
         if win:
-            profit = bet
             cursor.execute("UPDATE users SET balance=balance+? WHERE user_id=?",
-                           (profit, uid))
-            result = f"🎉 YUTDINGIZ! +{profit}"
+                           (bet, uid))
+            result = f"🎉 YUTDINGIZ! +{bet}"
         else:
             cursor.execute("UPDATE users SET balance=balance-? WHERE user_id=?",
                            (bet, uid))
@@ -224,14 +223,14 @@ async def universal(message: types.Message):
         del current_game[uid]
 
         await message.answer(result)
-        return
 
 # ================= MINES CALLBACK =================
 
 @dp.callback_query_handler(lambda c: c.data.startswith("mine_"))
 async def open_mine(callback: types.CallbackQuery):
-    uid = callback.from_user.id
+    await callback.answer()  # MUHIM!!!
 
+    uid = callback.from_user.id
     if uid not in mines_games:
         return
 
@@ -261,7 +260,7 @@ async def open_mine(callback: types.CallbackQuery):
 
     # AGAR XAVFSIZ
     game["multiplier"] += 0.5
-    current_win = round(game["bet"] * game["multiplier"])
+    current_win = int(game["bet"] * game["multiplier"])
 
     await callback.message.edit_text(
         f"💣 Mines\n\n"
@@ -275,8 +274,9 @@ async def open_mine(callback: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda c: c.data == "cashout")
 async def cashout(callback: types.CallbackQuery):
-    uid = callback.from_user.id
+    await callback.answer()  # MUHIM!!!
 
+    uid = callback.from_user.id
     if uid not in mines_games:
         return
 
