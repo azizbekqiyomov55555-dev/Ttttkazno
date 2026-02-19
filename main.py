@@ -56,31 +56,19 @@ def games_menu():
         KeyboardButton("🔙 Orqaga")
     )
 
-# ================= SIMPLE GAMES =================
-
-GAME_RATES = {
-    "🎲 Dice": 0.45,
-    "🎯 Dart": 0.40,
-    "⚽ Penalty": 0.50,
-    "🎰 Slot": 0.35,
-    "🪙 Coin": 0.50,
-    "🃏 BlackJack": 0.42,
-    "🏀 Basket": 0.48,
-    "🎳 Bowling": 0.46,
-    "🎮 Lucky": 0.30
-}
+# ================= STORAGE =================
 
 awaiting_bet = {}
 current_game = {}
+progress_games = {}
+mines_games = {}
 
 # ================= MINES =================
 
-mines_games = {}
-
 def mines_keyboard(game):
     kb = InlineKeyboardMarkup(row_width=5)
-
     buttons = []
+
     for i in range(15):
         if i in game["opened"]:
             if i in game["mines"]:
@@ -98,6 +86,14 @@ def mines_keyboard(game):
     kb.add(InlineKeyboardButton("💰 Yutuqni olish", callback_data="cashout"))
     return kb
 
+# ================= PROGRESS GAME KEYBOARD =================
+
+def progress_keyboard():
+    kb = InlineKeyboardMarkup()
+    kb.add(InlineKeyboardButton("🎯 O‘ynash", callback_data="play_step"))
+    kb.add(InlineKeyboardButton("💰 Yutuqni olish", callback_data="take_profit"))
+    return kb
+
 # ================= START =================
 
 @dp.message_handler(commands=['start'])
@@ -105,7 +101,6 @@ async def start(message: types.Message):
     cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)",
                    (message.from_user.id,))
     conn.commit()
-
     await message.answer("🎰 Casino Bot", reply_markup=main_menu())
 
 # ================= PROFILE =================
@@ -154,14 +149,16 @@ async def universal(message: types.Message):
         await message.answer("🏠 Asosiy menyu", reply_markup=main_menu())
         return
 
-    # MINES START
+    # MINES
     if text == "💣 Mines":
         mines_games[uid] = {"awaiting_bet": True}
         await message.answer("💵 Stavka kiriting (min 10):")
         return
 
     # OTHER GAMES
-    if text in GAME_RATES:
+    if text in ["🎲 Dice","🎯 Dart","⚽ Penalty","🎰 Slot",
+                "🪙 Coin","🃏 BlackJack","🏀 Basket",
+                "🎳 Bowling","🎮 Lucky"]:
         awaiting_bet[uid] = True
         current_game[uid] = text
         await message.answer("💵 Stavka kiriting (min 10):")
@@ -205,82 +202,66 @@ async def universal(message: types.Message):
             await message.answer("❌ Stavka noto‘g‘ri")
             return
 
-        game = current_game[uid]
-        win = random.random() < GAME_RATES[game]
-
-        if win:
-            cursor.execute("UPDATE users SET balance=balance+? WHERE user_id=?",
-                           (bet, uid))
-            result = f"🎉 YUTDINGIZ! +{bet}"
-        else:
-            cursor.execute("UPDATE users SET balance=balance-? WHERE user_id=?",
-                           (bet, uid))
-            result = f"😢 YUTQAZDINGIZ! -{bet}"
-
-        conn.commit()
+        progress_games[uid] = {
+            "bet": bet,
+            "step": 0,
+            "multiplier": 1.0
+        }
 
         del awaiting_bet[uid]
-        del current_game[uid]
 
-        await message.answer(result)
+        await message.answer(
+            "🎯 O‘yin boshlandi!\nMultiplier: 1.0x",
+            reply_markup=progress_keyboard()
+        )
 
-# ================= MINES CALLBACK =================
+# ================= PROGRESS CALLBACK =================
 
-@dp.callback_query_handler(lambda c: c.data.startswith("mine_"))
-async def open_mine(callback: types.CallbackQuery):
-    await callback.answer()  # MUHIM!!!
+@dp.callback_query_handler(lambda c: c.data == "play_step")
+async def play_step(callback: types.CallbackQuery):
+    await callback.answer()
 
     uid = callback.from_user.id
-    if uid not in mines_games:
+    if uid not in progress_games:
         return
 
-    game = mines_games[uid]
-    index = int(callback.data.split("_")[1])
+    game = progress_games[uid]
+    game["step"] += 1
 
-    if index in game["opened"]:
-        return
-
-    game["opened"].append(index)
-
-    # AGAR MINA
-    if index in game["mines"]:
+    if game["step"] == 1:
+        game["multiplier"] = 1.5
+    elif game["step"] == 2:
+        game["multiplier"] = 2.0
+    elif game["step"] == 3:
+        game["multiplier"] = 3.0
+    else:
+        # LOSE
         cursor.execute("UPDATE users SET balance=balance-? WHERE user_id=?",
                        (game["bet"], uid))
         conn.commit()
 
-        game["opened"] = list(range(15))
-
-        await callback.message.edit_text(
-            f"💥 Portladi!\n😢 -{game['bet']}",
-            reply_markup=mines_keyboard(game)
-        )
-
-        del mines_games[uid]
+        await callback.message.edit_text("💥 YUTQAZDINGIZ!")
+        del progress_games[uid]
         return
 
-    # AGAR XAVFSIZ
-    game["multiplier"] += 0.5
     current_win = int(game["bet"] * game["multiplier"])
 
     await callback.message.edit_text(
-        f"💣 Mines\n\n"
+        f"🎯 O‘yin davom etmoqda\n"
         f"📈 Multiplier: {game['multiplier']}x\n"
-        f"💰 Hozirgi yutuq: {current_win}\n\n"
-        f"Qutini davom ettiring yoki yutuqni oling 👇",
-        reply_markup=mines_keyboard(game)
+        f"💰 Hozirgi yutuq: {current_win}",
+        reply_markup=progress_keyboard()
     )
 
-# ================= CASHOUT =================
-
-@dp.callback_query_handler(lambda c: c.data == "cashout")
-async def cashout(callback: types.CallbackQuery):
-    await callback.answer()  # MUHIM!!!
+@dp.callback_query_handler(lambda c: c.data == "take_profit")
+async def take_profit(callback: types.CallbackQuery):
+    await callback.answer()
 
     uid = callback.from_user.id
-    if uid not in mines_games:
+    if uid not in progress_games:
         return
 
-    game = mines_games[uid]
+    game = progress_games[uid]
     profit = int(game["bet"] * game["multiplier"])
 
     cursor.execute("UPDATE users SET balance=balance+? WHERE user_id=?",
@@ -291,7 +272,7 @@ async def cashout(callback: types.CallbackQuery):
         f"💰 Siz {game['multiplier']}x yutdingiz!\n+{profit}"
     )
 
-    del mines_games[uid]
+    del progress_games[uid]
 
 # ================= RUN =================
 
