@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS users (
 conn.commit()
 
 # ================= MENUS =================
-def main_menu(user_id):
+def main_menu():
     keyboard = [
         [KeyboardButton("🎮 O‘yinlar")],
         [KeyboardButton("🎁 Bonus"), KeyboardButton("👤 Profil")]
@@ -42,30 +42,13 @@ def main_menu(user_id):
 
 def games_menu():
     keyboard = [
-        [KeyboardButton("🎲 Dice"), KeyboardButton("🎯 Dart")],
-        [KeyboardButton("⚽ Penalty"), KeyboardButton("🎰 Slot")],
-        [KeyboardButton("🪙 Coin"), KeyboardButton("🃏 BlackJack")],
-        [KeyboardButton("🏀 Basket"), KeyboardButton("🎳 Bowling")],
-        [KeyboardButton("🎮 Lucky"), KeyboardButton("💣 Mines")],
+        [KeyboardButton("💣 Mines")],
         [KeyboardButton("🔙 Orqaga")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# ================= GAME SETTINGS =================
-GAME_RATES = {
-    "🎲 Dice": 0.45,
-    "🎯 Dart": 0.40,
-    "⚽ Penalty": 0.50,
-    "🎰 Slot": 0.35,
-    "🪙 Coin": 0.50,
-    "🃏 BlackJack": 0.42,
-    "🏀 Basket": 0.48,
-    "🎳 Bowling": 0.46,
-    "🎮 Lucky": 0.30,
-}
-
+# ================= GLOBAL =================
 awaiting_bet = {}
-current_game = {}
 mines_games = {}
 
 # ================= START =================
@@ -75,7 +58,7 @@ async def start(message: types.Message):
                    (message.from_user.id,))
     conn.commit()
 
-    await message.answer("🎰 Casino Bot", reply_markup=main_menu(message.from_user.id))
+    await message.answer("🎰 Casino Bot", reply_markup=main_menu())
 
 # ================= PROFILE =================
 @dp.message_handler(lambda m: m.text == "👤 Profil")
@@ -104,23 +87,22 @@ async def bonus(message: types.Message):
 
     await message.answer("🎁 +100 coin qo‘shildi!")
 
-# ================= GAMES MENU =================
+# ================= GAMES =================
 @dp.message_handler(lambda m: m.text == "🎮 O‘yinlar")
 async def games_handler(message: types.Message):
     await message.answer("🎮 O‘yin tanlang:", reply_markup=games_menu())
 
 @dp.message_handler(lambda m: m.text == "🔙 Orqaga")
 async def back_handler(message: types.Message):
-    await message.answer("🏠 Asosiy menyu", reply_markup=main_menu(message.from_user.id))
+    await message.answer("🏠 Asosiy menyu", reply_markup=main_menu())
 
-# ================= GAME SELECT =================
-@dp.message_handler(lambda m: m.text in GAME_RATES or m.text == "💣 Mines")
-async def select_game(message: types.Message):
-    uid = message.from_user.id
-    awaiting_bet[uid] = message.text
+# ================= MINES START =================
+@dp.message_handler(lambda m: m.text == "💣 Mines")
+async def mines_start(message: types.Message):
+    awaiting_bet[message.from_user.id] = True
     await message.answer("💵 Stavka kiriting (min 10):")
 
-# ================= BET HANDLER =================
+# ================= BET =================
 @dp.message_handler()
 async def universal(message: types.Message):
     uid = message.from_user.id
@@ -141,49 +123,28 @@ async def universal(message: types.Message):
         await message.answer("❌ Stavka noto‘g‘ri")
         return
 
-    game = awaiting_bet[uid]
-    del awaiting_bet[uid]
+    bombs = random.sample(range(10), 4)
 
-    # ================= MINES =================
-    if game == "💣 Mines":
+    mines_games[uid] = {
+        "bet": bet,
+        "bombs": bombs,
+        "opened": [],
+        "multiplier": 1
+    }
 
-        bombs = random.sample(range(10), 4)
+    keyboard = InlineKeyboardMarkup(row_width=2)  # KATTA QUTILAR (2 tadan)
 
-        mines_games[uid] = {
-            "bet": bet,
-            "bombs": bombs,
-            "opened": [],
-            "multiplier": 1
-        }
-
-        keyboard = InlineKeyboardMarkup(row_width=5)
-
-        for i in range(10):
-            keyboard.insert(
-                InlineKeyboardButton("📦", callback_data=f"mine_{i}")
-            )
-
-        keyboard.add(
-            InlineKeyboardButton("💵 Pulni olish", callback_data="cashout")
+    for i in range(10):
+        keyboard.insert(
+            InlineKeyboardButton("📦 QUTI", callback_data=f"mine_{i}")
         )
 
-        await message.answer("📦 Qutini tanlang:", reply_markup=keyboard)
-        return
+    keyboard.add(
+        InlineKeyboardButton("💵 Pulni olish", callback_data="cashout")
+    )
 
-    # ================= OTHER GAMES =================
-    win = random.random() < GAME_RATES[game]
-
-    if win:
-        cursor.execute("UPDATE users SET balance=balance+? WHERE user_id=?",
-                       (bet, uid))
-        result = f"🎉 YUTDINGIZ! +{bet}"
-    else:
-        cursor.execute("UPDATE users SET balance=balance-? WHERE user_id=?",
-                       (bet, uid))
-        result = f"😢 YUTQAZDINGIZ! -{bet}"
-
-    conn.commit()
-    await message.answer(result)
+    await message.answer("📦 Qutini tanlang:", reply_markup=keyboard)
+    del awaiting_bet[uid]
 
 # ================= MINES CALLBACK =================
 @dp.callback_query_handler(lambda c: c.data.startswith("mine_") or c.data == "cashout")
@@ -199,7 +160,7 @@ async def mines_callback(callback: types.CallbackQuery):
     bombs = game["bombs"]
     opened = game["opened"]
 
-    # CASHOUT
+    # ===== CASHOUT =====
     if callback.data == "cashout":
 
         if len(opened) == 0:
@@ -219,26 +180,31 @@ async def mines_callback(callback: types.CallbackQuery):
         del mines_games[uid]
         return
 
-    # BOX CLICK
+    # ===== BOX CLICK =====
     index = int(callback.data.split("_")[1])
 
     if index in opened:
         await callback.answer("Bu quti ochilgan!")
         return
 
+    # TUZOQ
     if index in bombs:
+
         cursor.execute("UPDATE users SET balance=balance-? WHERE user_id=?",
                        (bet, uid))
         conn.commit()
 
-        keyboard = InlineKeyboardMarkup(row_width=5)
+        keyboard = InlineKeyboardMarkup(row_width=2)
 
         for i in range(10):
             if i in bombs:
-                text_btn = "💣"
+                text_btn = "💣 TUZOQ"
             else:
-                text_btn = "✅"
-            keyboard.insert(InlineKeyboardButton(text_btn, callback_data="end"))
+                text_btn = "✅ XAVFSIZ"
+
+            keyboard.insert(
+                InlineKeyboardButton(text_btn, callback_data="end")
+            )
 
         await callback.message.edit_text(
             "💥 TUZOQGA TUSHDINGIZ!\nPul yo‘qotildi!",
@@ -248,7 +214,7 @@ async def mines_callback(callback: types.CallbackQuery):
         del mines_games[uid]
         return
 
-    # SAFE
+    # ===== SAFE =====
     opened.append(index)
 
     if len(opened) == 1:
@@ -260,13 +226,15 @@ async def mines_callback(callback: types.CallbackQuery):
     elif len(opened) >= 4:
         game["multiplier"] = 4
 
-    keyboard = InlineKeyboardMarkup(row_width=5)
+    potential_win = int(bet * game["multiplier"])
+
+    keyboard = InlineKeyboardMarkup(row_width=2)
 
     for i in range(10):
         if i in opened:
-            text_btn = "✅"
+            text_btn = "✅ OCHILDI"
         else:
-            text_btn = "📦"
+            text_btn = "📦 QUTI"
 
         keyboard.insert(
             InlineKeyboardButton(text_btn, callback_data=f"mine_{i}")
@@ -276,8 +244,14 @@ async def mines_callback(callback: types.CallbackQuery):
         InlineKeyboardButton("💵 Pulni olish", callback_data="cashout")
     )
 
-    await callback.message.edit_reply_markup(reply_markup=keyboard)
-    await callback.answer(f"x{game['multiplier']}")
+    await callback.message.edit_text(
+        f"🎉 Siz hozir x{game['multiplier']} yutyapsiz!\n"
+        f"💰 Potensial yutuq: {potential_win}\n\n"
+        "Yana davom etasizmi yoki pulni olasizmi?",
+        reply_markup=keyboard
+    )
+
+    await callback.answer()
 
 # ================= RUN =================
 if __name__ == "__main__":
