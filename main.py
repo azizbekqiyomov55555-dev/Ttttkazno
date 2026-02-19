@@ -63,30 +63,7 @@ current_game = {}
 progress_games = {}
 mines_games = {}
 
-# ================= MINES =================
-
-def mines_keyboard(game):
-    kb = InlineKeyboardMarkup(row_width=5)
-    buttons = []
-
-    for i in range(15):
-        if i in game["opened"]:
-            if i in game["mines"]:
-                text = "💣"
-            else:
-                text = "✅"
-        else:
-            text = "⬜"
-
-        buttons.append(
-            InlineKeyboardButton(text, callback_data=f"mine_{i}")
-        )
-
-    kb.add(*buttons)
-    kb.add(InlineKeyboardButton("💰 Yutuqni olish", callback_data="cashout"))
-    return kb
-
-# ================= PROGRESS GAME KEYBOARD =================
+# ================= PROGRESS KEYBOARD =================
 
 def progress_keyboard():
     kb = InlineKeyboardMarkup()
@@ -149,49 +126,15 @@ async def universal(message: types.Message):
         await message.answer("🏠 Asosiy menyu", reply_markup=main_menu())
         return
 
-    # MINES
-    if text == "💣 Mines":
-        mines_games[uid] = {"awaiting_bet": True}
-        await message.answer("💵 Stavka kiriting (min 10):")
-        return
-
     # OTHER GAMES
     if text in ["🎲 Dice","🎯 Dart","⚽ Penalty","🎰 Slot",
                 "🪙 Coin","🃏 BlackJack","🏀 Basket",
                 "🎳 Bowling","🎮 Lucky"]:
         awaiting_bet[uid] = True
-        current_game[uid] = text
         await message.answer("💵 Stavka kiriting (min 10):")
         return
 
-    # MINES BET
-    if uid in mines_games and mines_games[uid].get("awaiting_bet"):
-        if not text.isdigit():
-            return
-
-        bet = int(text)
-
-        cursor.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
-        bal = cursor.fetchone()[0]
-
-        if bet < 10 or bet > bal:
-            await message.answer("❌ Stavka noto‘g‘ri")
-            return
-
-        mines_games[uid] = {
-            "bet": bet,
-            "mines": random.sample(range(15), 8),
-            "opened": [],
-            "multiplier": 1.0
-        }
-
-        await message.answer(
-            "💣 O‘yin boshlandi!\nMultiplier: 1.0x",
-            reply_markup=mines_keyboard(mines_games[uid])
-        )
-        return
-
-    # OTHER GAME BET
+    # BET
     if uid in awaiting_bet and text.isdigit():
         bet = int(text)
 
@@ -215,7 +158,7 @@ async def universal(message: types.Message):
             reply_markup=progress_keyboard()
         )
 
-# ================= PROGRESS CALLBACK =================
+# ================= PLAY STEP =================
 
 @dp.callback_query_handler(lambda c: c.data == "play_step")
 async def play_step(callback: types.CallbackQuery):
@@ -228,6 +171,7 @@ async def play_step(callback: types.CallbackQuery):
     game = progress_games[uid]
     game["step"] += 1
 
+    # STEP LOGIC
     if game["step"] == 1:
         game["multiplier"] = 1.5
     elif game["step"] == 2:
@@ -235,7 +179,6 @@ async def play_step(callback: types.CallbackQuery):
     elif game["step"] == 3:
         game["multiplier"] = 3.0
     else:
-        # LOSE
         cursor.execute("UPDATE users SET balance=balance-? WHERE user_id=?",
                        (game["bet"], uid))
         conn.commit()
@@ -247,11 +190,12 @@ async def play_step(callback: types.CallbackQuery):
     current_win = int(game["bet"] * game["multiplier"])
 
     await callback.message.edit_text(
-        f"🎯 O‘yin davom etmoqda\n"
-        f"📈 Multiplier: {game['multiplier']}x\n"
+        f"🎉 Siz {game['multiplier']}x yutdingiz!\n\n"
         f"💰 Hozirgi yutuq: {current_win}",
         reply_markup=progress_keyboard()
     )
+
+# ================= TAKE PROFIT =================
 
 @dp.callback_query_handler(lambda c: c.data == "take_profit")
 async def take_profit(callback: types.CallbackQuery):
