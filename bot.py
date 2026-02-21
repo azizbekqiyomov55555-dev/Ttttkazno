@@ -1,5 +1,5 @@
 import asyncio
-import os
+import aiosqlite
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
@@ -9,20 +9,18 @@ from aiogram.filters import Command
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-import aiosqlite
 
-# ================= CONFIG =================
+# ================== CONFIG ==================
 
 BOT_TOKEN = "8390342230:AAFIAyiSJj6sxsZzePaO-srY2qy8vBC7bCU"
-ADMIN_ID = 8537782289  # int bo'lishi shart
-CHANNEL = "@Azizbekl2026"  # @ bilan yoziladi
+ADMIN_ID = 8537782289
+REFERAL_BONUS = 1000
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
-
 DB = "database.db"
 
-# ================= DATABASE =================
+# ================== DATABASE ==================
 
 async def create_db():
     async with aiosqlite.connect(DB) as db:
@@ -50,12 +48,16 @@ async def add_user(user_id, referal=None):
         )
         await db.commit()
 
+        if referal:
+            await db.execute(
+                "UPDATE users SET balance = balance + ? WHERE user_id=?",
+                (REFERAL_BONUS, referal)
+            )
+            await db.commit()
+
 async def get_balance(user_id):
     async with aiosqlite.connect(DB) as db:
-        cursor = await db.execute(
-            "SELECT balance FROM users WHERE user_id=?",
-            (user_id,)
-        )
+        cursor = await db.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
         row = await cursor.fetchone()
         return row[0] if row else 0
 
@@ -66,6 +68,12 @@ async def update_balance(user_id, amount):
             (amount, user_id)
         )
         await db.commit()
+
+async def get_users_count():
+    async with aiosqlite.connect(DB) as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM users")
+        row = await cursor.fetchone()
+        return row[0]
 
 async def create_promocode(code, amount):
     async with aiosqlite.connect(DB) as db:
@@ -87,14 +95,11 @@ async def use_promocode(code):
         amount, used = row
         if used == 1:
             return "USED"
-        await db.execute(
-            "UPDATE promocodes SET used=1 WHERE code=?",
-            (code,)
-        )
+        await db.execute("UPDATE promocodes SET used=1 WHERE code=?", (code,))
         await db.commit()
         return amount
 
-# ================= STATES =================
+# ================== STATES ==================
 
 class PromoState(StatesGroup):
     waiting_code = State()
@@ -102,40 +107,31 @@ class PromoState(StatesGroup):
 class TopUpState(StatesGroup):
     waiting_amount = State()
 
-# ================= KEYBOARDS =================
+class AdminPromoState(StatesGroup):
+    waiting_data = State()
+
+# ================== MENU ==================
 
 main_menu = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="💰 Hisobim"), KeyboardButton(text="🎁 Promo kod")],
-        [KeyboardButton(text="💳 Hisob to‘ldirish"), KeyboardButton(text="👥 Referal")],
+        [KeyboardButton(text="🛍 Xizmatlar"), KeyboardButton(text="📱 Nomer olish")],
+        [KeyboardButton(text="🛒 Buyurtmalarim"), KeyboardButton(text="👥 Pul ishlash")],
+        [KeyboardButton(text="💰 Hisobim"), KeyboardButton(text="💵 Hisob To'ldirish")],
+        [KeyboardButton(text="🎁 Promo kod")],
+        [KeyboardButton(text="🤝 Hamkorlik")]
     ],
     resize_keyboard=True
 )
 
-def admin_keyboard(user_id, amount):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="✅ Tasdiqlash",
-                callback_data=f"approve_{user_id}_{amount}"
-            ),
-            InlineKeyboardButton(
-                text="❌ Bekor qilish",
-                callback_data="cancel"
-            )
-        ]
-    ])
+admin_menu = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="📊 Statistika")],
+        [KeyboardButton(text="🎁 Promo yaratish")]
+    ],
+    resize_keyboard=True
+)
 
-# ================= CHANNEL CHECK =================
-
-async def check_sub(user_id):
-    try:
-        member = await bot.get_chat_member(CHANNEL, user_id)
-        return member.status in ["member", "administrator", "creator"]
-    except:
-        return False
-
-# ================= START =================
+# ================== START ==================
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
@@ -146,48 +142,26 @@ async def start(message: types.Message):
 
     await add_user(message.from_user.id, referal)
 
-    if not await check_sub(message.from_user.id):
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="📢 Obuna bo‘lish",
-                url=f"https://t.me/{CHANNEL.replace('@','')}"
-            )],
-            [InlineKeyboardButton(
-                text="✅ Tekshirish",
-                callback_data="check_sub"
-            )]
-        ])
-        await message.answer(
-            "Botdan foydalanish uchun kanalga obuna bo‘ling!",
-            reply_markup=kb
-        )
-        return
+    text = f"""
+👋 Assalomu alaykum <b>{message.from_user.first_name}</b>
 
-    await message.answer("Xush kelibsiz!", reply_markup=main_menu)
+🛡 Botimizga xush kelibsiz!
 
-# ================= SUB CHECK =================
+📲 Telegram
+📸 Instagram
+🎵 TikTok
+▶️ YouTube xizmatlari mavjud.
+"""
+    await message.answer(text, parse_mode="HTML", reply_markup=main_menu)
 
-@dp.callback_query(F.data == "check_sub")
-async def sub_check(callback: types.CallbackQuery):
-    if await check_sub(callback.from_user.id):
-        await callback.message.answer(
-            "Rahmat! Endi foydalanishingiz mumkin.",
-            reply_markup=main_menu
-        )
-    else:
-        await callback.answer(
-            "Hali obuna bo‘lmadingiz!",
-            show_alert=True
-        )
-
-# ================= BALANCE =================
+# ================== HISOB ==================
 
 @dp.message(F.text == "💰 Hisobim")
 async def balance(message: types.Message):
     bal = await get_balance(message.from_user.id)
-    await message.answer(f"Sizning balansingiz: {bal} so'm")
+    await message.answer(f"💰 Balansingiz: {bal} so'm")
 
-# ================= PROMO =================
+# ================== PROMO ==================
 
 @dp.message(F.text == "🎁 Promo kod")
 async def promo_start(message: types.Message, state: FSMContext):
@@ -195,66 +169,68 @@ async def promo_start(message: types.Message, state: FSMContext):
     await state.set_state(PromoState.waiting_code)
 
 @dp.message(PromoState.waiting_code)
-async def promo_process(message: types.Message, state: FSMContext):
+async def promo_use(message: types.Message, state: FSMContext):
     result = await use_promocode(message.text.strip())
     if result is None:
-        await message.answer("Promo kod topilmadi!")
+        await message.answer("❌ Promo kod topilmadi")
     elif result == "USED":
-        await message.answer("Bu promo kod ishlatilgan!")
+        await message.answer("⚠️ Promo kod ishlatilgan")
     else:
         await update_balance(message.from_user.id, result)
-        await message.answer(f"{result} so'm qo‘shildi!")
+        await message.answer(f"✅ {result} so'm qo'shildi")
     await state.clear()
 
-# ================= REFERAL =================
+# ================== TOP UP ==================
 
-@dp.message(F.text == "👥 Referal")
-async def referal(message: types.Message):
-    me = await bot.get_me()
-    link = f"https://t.me/{me.username}?start={message.from_user.id}"
-    await message.answer(f"Sizning referal linkingiz:\n{link}")
-
-# ================= TOP UP =================
-
-@dp.message(F.text == "💳 Hisob to‘ldirish")
+@dp.message(F.text == "💵 Hisob To'ldirish")
 async def topup_start(message: types.Message, state: FSMContext):
-    await message.answer("To‘ldirish summasini kiriting:")
+    await message.answer("Summani kiriting:")
     await state.set_state(TopUpState.waiting_amount)
 
 @dp.message(TopUpState.waiting_amount)
 async def topup_process(message: types.Message, state: FSMContext):
     if not message.text.isdigit():
-        await message.answer("Faqat raqam kiriting!")
+        await message.answer("Faqat raqam kiriting")
         return
-
     amount = int(message.text)
-
-    await bot.send_message(
-        ADMIN_ID,
-        f"Foydalanuvchi: {message.from_user.id}\nSumma: {amount}",
-        reply_markup=admin_keyboard(message.from_user.id, amount)
-    )
-
-    await message.answer("So‘rov yuborildi. Admin tasdiqlashini kuting.")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"approve_{message.from_user.id}_{amount}")]
+    ])
+    await bot.send_message(ADMIN_ID, f"To'ldirish so'rovi\nUser: {message.from_user.id}\nSumma: {amount}", reply_markup=kb)
+    await message.answer("So'rov yuborildi")
     await state.clear()
-
-# ================= ADMIN =================
 
 @dp.callback_query(F.data.startswith("approve_"))
 async def approve(callback: types.CallbackQuery):
     _, user_id, amount = callback.data.split("_")
     await update_balance(int(user_id), int(amount))
-    await bot.send_message(
-        int(user_id),
-        f"{amount} so'm balansingizga qo‘shildi!"
-    )
-    await callback.message.edit_text("Tasdiqlandi!")
+    await bot.send_message(int(user_id), f"✅ {amount} so'm qo'shildi")
+    await callback.message.edit_text("Tasdiqlandi")
 
-@dp.callback_query(F.data == "cancel")
-async def cancel(callback: types.CallbackQuery):
-    await callback.message.edit_text("Bekor qilindi!")
+# ================== ADMIN ==================
 
-# ================= RUN =================
+@dp.message(F.text == "📊 Statistika")
+async def stats(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    count = await get_users_count()
+    await message.answer(f"👥 Foydalanuvchilar: {count}")
+
+@dp.message(F.text == "🎁 Promo yaratish")
+async def create_promo_start(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    await message.answer("Format: KOD SUMMA\nMasalan: BONUS 5000")
+    await state.set_state(AdminPromoState.waiting_data)
+
+@dp.message(AdminPromoState.waiting_data)
+async def create_promo_process(message: types.Message, state: FSMContext):
+    code, amount = message.text.split()
+    await create_promocode(code.upper(), int(amount))
+    await message.answer("Promo yaratildi")
+    await state.clear()
+
+# ================== RUN ==================
 
 async def main():
     await create_db()
