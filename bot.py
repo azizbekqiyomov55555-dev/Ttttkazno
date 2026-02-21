@@ -4,7 +4,7 @@ ob_start();
 error_reporting(0);
 date_Default_timezone_set('Asia/Tashkent');
 
-define("VisualCoderUz", '8390342230:AAFIAyiSJj6sxsZzePaO-srY2qy8vBC7bCU'); // bot token
+define("VisualCoderUz", '8490088431:AAH-5kbO11C7TH9Q6IRYByQ45xoyb0fr7QY'); // bot token
 $admin = "8537782289"; // admin ID
 $bot = bot('getme', ['bot'])->result->username; // bot useri
 $botname = bot('getme',['bot'])->result->first_name; // bot niki
