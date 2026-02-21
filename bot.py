@@ -176,16 +176,18 @@ mkdir("tizim");
 mkdir("step");
 
 if($data == "result"){
-bot('deleteMessage',[
-'chat_id'=>$cid2,
-'message_id'=>$mid2
-]);
-bot('SendMessage',[
-'chat_id'=>$cid2,
-await message.answer(
-    "🔔 <b>Obunangiz tasdiqlandi.</b>",
-    parse_mode="HTML"
-)
+    bot('deleteMessage',[
+        'chat_id'=>$cid2,
+        'message_id'=>$mid2
+    ]);
+
+    bot('sendMessage',[
+        'chat_id'=>$cid2,
+        'text'=>"🔔 <b>Obunangiz tasdiqlandi.</b>\n\n/start",
+        'parse_mode'=>'html',
+    ]);
+    exit();
+}
 
 /start</b>",
 'parse_mode'=>'html',
