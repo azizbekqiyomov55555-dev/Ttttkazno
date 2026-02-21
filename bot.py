@@ -15,7 +15,7 @@ import aiosqlite
 
 BOT_TOKEN = "8390342230:AAFIAyiSJj6sxsZzePaO-srY2qy8vBC7bCU"
 ADMIN_ID = 8537782289  # int bo'lishi shart
-CHANNEL = "@KANAL_USERNAME"  # @ bilan yoziladi
+CHANNEL = "@Azizbekl2026"  # @ bilan yoziladi
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
