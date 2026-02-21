@@ -10,7 +10,7 @@ import threading
 import os
 
 # ------------------- SOZLAMALAR -------------------
-BOT_TOKEN = "8490088431:AAH-5kbO11C7TH9Q6IRYByQ45xoyb0fr7QY"  # BotFather dan olingan token
+BOT_TOKEN = "8504337219:AAFUWtT_7yk6KFBxI5Bdm9WlVlotONDKIak"  # BotFather dan olingan token
 ADMIN_IDS = [8537782289, 987654321]  # Adminlar Telegram ID si
 
 # Narxlar (so'm / dona)
