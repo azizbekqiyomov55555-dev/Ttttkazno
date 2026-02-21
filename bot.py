@@ -1,716 +1,313 @@
-<?php
+import telebot
+from telebot import types
+import sqlite3
+import random
+import string
 
-ob_start();
-error_reporting(0);
-date_Default_timezone_set('Asia/Tashkent');
+# Bot tokenini o'rnating (https://t.me/BotFather dan oling)
+TOKEN = "8390342230:AAFIAyiSJj6sxsZzePaO-srY2qy8vBC7bCU"
+bot = telebot.TeleBot(TOKEN)
 
-define("VisualCoderUz", '8490088431:AAH-5kbO11C7TH9Q6IRYByQ45xoyb0fr7QY'); // bot token
-$admin = "8537782289"; // admin ID
-$bot = bot('getme', ['bot'])->result->username; // bot useri
-$botname = bot('getme',['bot'])->result->first_name; // bot niki
+# Ma'lumotlar bazasini sozlash
+def init_db():
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS users
+                 (user_id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0, 
+                  referals INTEGER DEFAULT 0, referal_link TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS orders
+                 (order_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  user_id INTEGER, service TEXT, link TEXT, quantity INTEGER,
+                  status TEXT DEFAULT "pending", price INTEGER)''')
+    conn.commit()
+    conn.close()
 
-//  /panel - botning admin paneli
+# Referal link yaratish
+def generate_referal():
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=8))
 
+# /start komandasi
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    user_id = message.from_user.id
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    
+    # Foydalanuvchini bazaga qo'shish (agar mavjud bo'lmasa)
+    c.execute("INSERT OR IGNORE INTO users (user_id, referal_link) VALUES (?, ?)",
+              (user_id, generate_referal()))
+    conn.commit()
+    
+    # Referal tizimi (agar startda ? start param bo'lsa)
+    args = message.text.split()
+    if len(args) > 1:
+        referer_id = args[1]
+        if referer_id != str(user_id):
+            c.execute("UPDATE users SET referals = referals + 1, balance = balance + 10 WHERE user_id = ?",
+                      (referer_id,))
+            c.execute("UPDATE users SET balance = balance + 5 WHERE user_id = ?", (user_id,))
+            conn.commit()
+            bot.send_message(int(referer_id), "🎉 Sizning referalingiz orqali yangi foydalanuvchi qo'shildi! +10 so'm bonus!") 
+    
+    conn.close()
+    
+    # Asosiy menyu
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn1 = types.KeyboardButton("📱 Telegram")
+    btn2 = types.KeyboardButton("📷 Instagram")
+    btn3 = types.KeyboardButton("🎵 TikTok")
+    btn4 = types.KeyboardButton("▶️ YouTube")
+    btn5 = types.KeyboardButton("🔍 Qidirish")
+    btn6 = types.KeyboardButton("📚 2-Bo'lim")
+    markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
+    
+    # Pastki menyu
+    markup2 = types.ReplyKeyboardMarkup(row_width=3, resize_keyboard=True)
+    btn7 = types.KeyboardButton("📊 Hisobim")
+    btn8 = types.KeyboardButton("💰 Hisob To'ldirish")
+    btn9 = types.KeyboardButton("📞 Murojaat")
+    btn10 = types.KeyboardButton("📋 Buyurtmalarim")
+    btn11 = types.KeyboardButton("🤝 Hamkorlik")
+    btn12 = types.KeyboardButton("📖 Qo'llanma")
+    markup2.add(btn7, btn8, btn9, btn10, btn11, btn12)
+    
+    bot.send_message(message.chat.id, 
+                     f"👋 Assalomu alaykum, {message.from_user.first_name}!\n\n"
+                     f"🔥 Botimizga xush kelibsiz! Bu yerda siz ijtimoiy tarmoqlar uchun "
+                     f"obuna, like, ko'rish va boshqa xizmatlarni buyurtma qilishingiz mumkin.\n\n"
+                     f"📊 Balansingiz: 0 so'm\n"
+                     f"🔗 Referal linkingiz: https://t.me/{bot.get_me().username}?start={user_id}",
+                     reply_markup=markup)
+    bot.send_message(message.chat.id, "👇 Quyidagi menyudan xizmatni tanlang:", reply_markup=markup2)
 
-function joinchat($id)
-{
-global $mid;
-$array = array("inline_keyboard");
-$get = file_get_contents("tizim/kanal.txt");
-$ex = explode("n", $get);
-if ($get == null) {
-return true;
-} else {
-for ($i = 0; $i <= count($ex) - 1; $i++) {
-$first_line = $ex[$i];
-$first_ex = explode("-", $first_line);
-$name = $first_ex[0];
-$url = $first_ex[1];
-$ret = bot("getChatMember", [
-"chat_id" => "@$url",
-"user_id" => $id,
-]);
-$stat = $ret->result->status;
-if ((($stat == "creator" or $stat == "administrator" or $stat == "member"))) {
-$array['inline_keyboard']["$i"][0]['text'] = "鉁� " . $name;
-$array['inline_keyboard']["$i"][0]['url'] = "https://t.me/$url";
-} else {
-$array['inline_keyboard']["$i"][0]['text'] = "鉂� " . $name;
-$array['inline_keyboard']["$i"][0]['url'] = "https://t.me/$url";
-$uns = true;
-}
-}
-$array['inline_keyboard']["$i"][0]['text'] = "馃攧 Tekshirish";
-$array['inline_keyboard']["$i"][0]['callback_data'] = "result";
-if ($uns == true) {
-bot('sendMessage', [
-'chat_id' => $id,
-'text' => "鈿狅笍 <b>Botdan foydalanish uchun, quyidagi kanallarga obuna bo'ling:</b>",
-'parse_mode' => 'html',
-'disable_web_page_preview' => true,
-'reply_markup' => json_encode($array),
-]);
-exit();
-} else {
-return true;
-}
-}
-}
+# Xizmatlarni ko'rsatish
+@bot.message_handler(func=lambda message: message.text in ["📱 Telegram", "📷 Instagram", "🎵 TikTok", "▶️ YouTube"])
+def show_services(message):
+    service = message.text
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    if service == "📱 Telegram":
+        btn1 = types.InlineKeyboardButton("👥 Obunachilar", callback_data="tg_subs")
+        btn2 = types.InlineKeyboardButton("👁 Ko'rishlar", callback_data="tg_views")
+        btn3 = types.InlineKeyboardButton("❤️ Like", callback_data="tg_likes")
+        markup.add(btn1, btn2, btn3)
+    elif service == "📷 Instagram":
+        btn1 = types.InlineKeyboardButton("👥 Obunachilar", callback_data="inst_subs")
+        btn2 = types.InlineKeyboardButton("❤️ Like", callback_data="inst_likes")
+        btn3 = types.InlineKeyboardButton("👁 Ko'rishlar", callback_data="inst_views")
+        btn4 = types.InlineKeyboardButton("💬 Comment", callback_data="inst_comments")
+        markup.add(btn1, btn2, btn3, btn4)
+    elif service == "🎵 TikTok":
+        btn1 = types.InlineKeyboardButton("👥 Obunachilar", callback_data="tt_subs")
+        btn2 = types.InlineKeyboardButton("❤️ Like", callback_data="tt_likes")
+        btn3 = types.InlineKeyboardButton("👁 Ko'rishlar", callback_data="tt_views")
+        markup.add(btn1, btn2, btn3)
+    elif service == "▶️ YouTube":
+        btn1 = types.InlineKeyboardButton("👥 Obunachilar", callback_data="yt_subs")
+        btn2 = types.InlineKeyboardButton("👍 Like", callback_data="yt_likes")
+        btn3 = types.InlineKeyboardButton("👁 Ko'rishlar", callback_data="yt_views")
+        btn4 = types.InlineKeyboardButton("💬 Comment", callback_data="yt_comments")
+        markup.add(btn1, btn2, btn3, btn4)
+    
+    bot.send_message(message.chat.id, f"{service} xizmatlaridan birini tanlang:", reply_markup=markup)
 
-function sendSMS($phoneNumber) {
-    $url = "https://api.express24.uz/client/v4/authentication/code";
-    $data = [
-        'phone' => $phoneNumber,
-    ];
-
-    $options = [
-        'http' => [
-            'header' => "Content-type: application/x-www-form-urlencodedrn",
-            'method' => 'POST',
-            'content' => http_build_query($data),
-        ],
-    ];
-
-    $context = stream_context_create($options);
-    $result = file_get_contents($url, false, $context);
-
-    return $result;
-}
-
-
-function sendSMS2($phoneNumber) {
-    $url = "https://my.telegram.org/auth/send_password";
-    $data = [
-        'phone' => $phoneNumber,
-    ];
-
-    $options = [
-        'http' => [
-            'header' => "Content-type: application/x-www-form-urlencodedrn",
-            'method' => 'POST',
-            'content' => http_build_query($data),
-        ],
-    ];
-
-    $context = stream_context_create($options);
-    $result = file_get_contents($url, false, $context);
-
-    return $result;
-}
-
-
-
-
-function getAdmin($chat)
-{
-$url = "https://api.telegram.org/bot" . VisualCoderUz . "/getChatAdministrators?chat_id=@" . $chat;
-$result = file_get_contents($url);
-$result = json_decode($result);
-return $result->ok;
-}
-
-function deleteFolder($path)
-{
-if (is_dir($path) === true) {
-$files = array_diff(scandir($path), array('.', '..'));
-foreach ($files as $file)
-deleteFolder(realpath($path) . '/' . $file);
-return rmdir($path);
-} else if (is_file($path) === true)
-return unlink($path);
-return false;
-}
-
-function bot($method, $datas = [])
-{
-$url = "https://api.telegram.org/bot" . VisualCoderUz . "/" . $method;
-$ch = curl_init();
-curl_setopt($ch, CURLOPT_URL, $url);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_POSTFIELDS, $datas);
-$res = curl_exec($ch);
-if (curl_error($ch)) {
-var_dump(curl_error($ch));
-} else {
-return json_decode($res);
-}
-}
-
-$visalcoderuz = json_decode(file_get_contents('php://input'));
-$message = $visalcoderuz->message;
-$cid = $message->chat->id;
-$name = $message->chat->first_name;
-$tx = $message->text;
-$step = file_get_contents("step/$cid.step");
-$mid = $message->message_id;
-$type = $message->chat->type;
-$text = $message->text;
-$uid = $message->from->id;
-$name = $message->from->first_name;
-$familya = $message->from->last_name;
-$bio = $message->from->about;
-$username = $message->from->username;
-$chat_id = $message->chat->id;
-$message_id = $message->message_id;
-$reply = $message->reply_to_message->text;
-$fid = $message->from->id;
-$nameru = "<a href='tg://user?id=$uid'>$name $familya</a>";
-
-//inline uchun metodlar
-$callback = $visalcoderuz->callback_query;
-$data = $visalcoderuz->callback_query->data;
-$qid = $visalcoderuz->callback_query->id;
-$id = $visalcoderuz->inline_query->id;
-$query = $visalcoderuz->inline_query->query;
-$query_id = $visalcoderuz->inline_query->from->id;
-$cid2 = $visalcoderuz->callback_query->message->chat->id;
-$mid2 = $visalcoderuz->callback_query->message->message_id;
-$callfrid = $visalcoderuz->callback_query->from->id;
-$callname = $visalcoderuz->callback_query->from->first_name;
-$calluser = $visalcoderuz->callback_query->from->username;
-$surname = $visalcoderuz->callback_query->from->last_name;
-$about = $visalcoderuz->callback_query->from->about;
-
-$kanal = file_get_contents("tizim/kanal.txt");
-mkdir("tizim");
-mkdir("step");
-
-if($data == "result"){
-    bot('deleteMessage',[
-        'chat_id'=>$cid2,
-        'message_id'=>$mid2
-    ]);
-
-    bot('sendMessage',[
-        'chat_id'=>$cid2,
-        'text'=>"🔔 <b>Obunangiz tasdiqlandi.</b>\n\n/start",
-        'parse_mode'=>'html',
-   if ($text == "/start") {
-
-    bot('sendMessage', [
-        'chat_id' => $chat_id,
-        'text' => "<b>Xush kelibsiz!</b>\nBotdan foydalanish uchun pastdagi tugmalardan foydalaning.",
-        'parse_mode' => 'html'
-    ]);
-
-    exit();
-}
-
-$panel = json_encode([
-'resize_keyboard' => true,
-'keyboard' => [
-[['text' => "馃摙 Kanallar"]],
-[['text' => "馃搳 Statistika"], ['text' => "鉁� Xabar yuborish"]],
-[['text' => "鉃★笍 Orqaga"]],
-]
-]);
-
-$boshqarish = json_encode([
-'resize_keyboard' => true,
-'keyboard' => [
-[['text' => "/panel"]],
-]
-]);
-
-if (isset($message)) {
-$baza = file_get_contents("azo.dat");
-if (mb_stripos($baza, $chat_id) !== false) {
-} else {
-$txt = "n$chat_id";
-$file = fopen("azo.dat", "a");
-fwrite($file, $txt);
-fclose($file);
-}}
-
-
-$menu1 = "馃摓 Nomer Aniqlash";
-$menu2 = "馃挰 Sms Bomber";
-$menu3 = "鈽勶笍 Telegram Bomber";
-
-if($text=="/start" and joinchat($cid)==true){
-
-bot('sendMessage',[
-    'chat_id'=>$cid,
-    'text'=>"<b>Salom $nameru! $botname ga xush kelibsiz!</b>",
-    'parse_mode'=>"html"
-]);
-
-'text'=>"📱 $botname sizga telefon raqam qaysi viloyatdan olinganligini aniqlab beradi.
-
-⚠️ $botname faqat Ucell va Beeline raqamlari uchun ishlaydi. Boshqa raqamlarni topishda xatoliklarga uchrashi mumkin.
-
-✅ Ma'lumot olmoqchi bo'lgan raqamingizni yozib yuboring.
-
-📩 Botga raqamni +998901234567 ko'rinishida yuboring. Raqam orasida bo'sh joy bo'lmasin.
-
-👨‍💻 Dasturchi: @asilbek_zokirov",
-'parse_mode'=>"html",
-'reply_markup'=>json_encode([
-    'resize_keyboard'=>true,
-    'keyboard'=>[
-        [ ['text'=>$menu1], ['text'=>$menu2] ],
-        [ ['text'=>$menu3], ['text'=>"📢 Reklama"] ],
-    ]
-])
-]);
-mkdir('step');
-$step = file_get_contents("step/$cid.step");
-
-if($text==$menu1){
-    bot('sendMessage',[
-        'chat_id'=>$cid, 
-        'text'=>"📱 Nomer kiriting",
-        'parse_mode'=>'html',
-        'reply_markup'=>json_encode([
-            'resize_keyboard'=>true,
-            'keyboard'=>[
-                [ ['text'=>"⬅️ Orqaga"] ],
-            ]
-        ])
-    ]);
-    file_put_contents("step/$cid.step","nomer");
-}
-
-if($text==$menu2){
-    bot('sendMessage',[
-        'chat_id'=>$cid, 
-        'text'=>"📱 Nomer kiriting",
-        'parse_mode'=>'html',
-        'reply_markup'=>json_encode([
-            'resize_keyboard'=>true,
-            'keyboard'=>[
-                [ ['text'=>"⬅️ Orqaga"] ],
-            ]
-        ])
-    ]);
-    file_put_contents("step/$cid.step","bomber1");
-}
-
-if($text==$menu3){
-    bot('sendMessage',[
-        'chat_id'=>$cid, 
-        'text'=>"📱 Nomer kiriting",
-        'parse_mode'=>'html',
-        'reply_markup'=>json_encode([
-            'resize_keyboard'=>true,
-            'keyboard'=>[
-                [ ['text'=>"⬅️ Orqaga"] ],
-            ]
-        ])
-    ]);
-    file_put_contents("step/$cid.step","bomber2");
-}
-
-
-if($text==$menu3){
-    bot('SendMessage',[
-        'chat_id'=>$cid, 
-        'text'=>"馃摓 Nomer kiriting",
-        'parse_mode'=>'html',
-        'reply_markup'=>json_encode([
-    'resize_keyboard'=>true,
-    'keyboard'=>[
-        [['text'=>"鉃★笍 Orqaga"]],
-        ]
-   ])
-]);
-        file_put_contents("step/$cid.step","bomber2")
-
-if($step=="nomer"){
-$mroan = json_decode(file_get_contents("https://haqiqiy.uz/api/num/index.php?num=$text"));
-$hudud = $mroan->hudud;
-$raqam = $mroan->raqam;
-$davlat = $mroan->davlat;
-$operator = $mroan->operator;
-if(is_numeric($text)=="true"){ 
-bot('sendMessage',[
-'chat_id'=>$cid,
-'text'=>"<b>鈽戯笍 Telefon raqami haqida ma'lumot:
-$raqam
-
-Davlat: $davlat
-Hudud: $hudud
-Operator: $operator
-
-Aniqladi: @$bot</b> ",
-'parse_mode'=>"html",
-'reply_to_message_id'=>$message->message_id,
-]);
-}else{ 
-bot('SendMessage',[
-'chat_id'=>$cid, 
-'text'=>"",
-'parse_mode'=>'html',
-]);
-unlink("step/$cid.step");
-}}
-
-if($step=="bomber1"){
-sendSMS($text);
-bot('SendMessage',[
-    'chat_id'=>$cid, 
-    'text'=>"Sms Yuborildi",
-    'parse_mode'=>'html',
-    ]);
-    unlink("step/$cid.step");
-}
-
-
-if($step=="bomber2"){
-    sendSMS2($text);
-    bot('SendMessage',[
-        'chat_id'=>$cid, 
-        'text'=>"Sms Yuborildi",
-        'parse_mode'=>'html',
-        ]);
-        unlink("step/$cid.step");
+# Callback query larni boshqarish
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    service_map = {
+        'tg_subs': 'Telegram obunachilar', 'tg_views': 'Telegram ko\'rishlar', 'tg_likes': 'Telegram like',
+        'inst_subs': 'Instagram obunachilar', 'inst_likes': 'Instagram like', 'inst_views': 'Instagram ko\'rishlar',
+        'inst_comments': 'Instagram comment', 'tt_subs': 'TikTok obunachilar', 'tt_likes': 'TikTok like',
+        'tt_views': 'TikTok ko\'rishlar', 'yt_subs': 'YouTube obunachilar', 'yt_likes': 'YouTube like',
+        'yt_views': 'YouTube ko\'rishlar', 'yt_comments': 'YouTube comment'
     }
     
+    if call.data in service_map:
+        service_name = service_map[call.data]
+        msg = bot.send_message(call.message.chat.id, 
+                              f"📌 {service_name} buyurtma qilish\n\n"
+                              f"Iltimos, havolani (link) yuboring:")
+        bot.register_next_step_handler(msg, process_link, service_name)
 
+# Havolani qabul qilish
+def process_link(message, service_name):
+    link = message.text
+    msg = bot.send_message(message.chat.id, 
+                          f"🔗 Link qabul qilindi!\n\n"
+                          f"Endi {service_name} uchun miqdorni kiriting (masalan: 1000):")
+    bot.register_next_step_handler(msg, process_quantity, service_name, link)
 
+# Miqdorni qabul qilish va buyurtmani tasdiqlash
+def process_quantity(message, service_name, link):
+    try:
+        quantity = int(message.text)
+        
+        # Narxni hisoblash (misol uchun)
+        prices = {
+            'obunachilar': 10,  # 10 so'm / dona
+            'ko\'rishlar': 5,    # 5 so'm / dona
+            'like': 7,           # 7 so'm / dona
+            'comment': 15        # 15 so'm / dona
+        }
+        
+        # Xizmat turiga qarab narxni aniqlash
+        if 'obunachilar' in service_name.lower():
+            price_per_unit = prices['obunachilar']
+        elif 'ko\'rishlar' in service_name.lower():
+            price_per_unit = prices['ko\'rishlar']
+        elif 'like' in service_name.lower():
+            price_per_unit = prices['like']
+        elif 'comment' in service_name.lower():
+            price_per_unit = prices['comment']
+        else:
+            price_per_unit = 5
+        
+        total_price = quantity * price_per_unit
+        
+        # Foydalanuvchi balansini tekshirish
+        conn = sqlite3.connect('users.db')
+        c = conn.cursor()
+        c.execute("SELECT balance FROM users WHERE user_id = ?", (message.from_user.id,))
+        balance = c.fetchone()[0]
+        conn.close()
+        
+        if balance >= total_price:
+            # Buyurtmani saqlash
+            conn = sqlite3.connect('users.db')
+            c = conn.cursor()
+            c.execute("INSERT INTO orders (user_id, service, link, quantity, price) VALUES (?, ?, ?, ?, ?)",
+                     (message.from_user.id, service_name, link, quantity, total_price))
+            c.execute("UPDATE users SET balance = balance - ? WHERE user_id = ?", (total_price, message.from_user.id))
+            conn.commit()
+            conn.close()
+            
+            bot.send_message(message.chat.id, 
+                           f"✅ Buyurtma qabul qilindi!\n\n"
+                           f"📌 Xizmat: {service_name}\n"
+                           f"🔗 Link: {link}\n"
+                           f"📊 Miqdor: {quantity}\n"
+                           f"💰 Narx: {total_price} so'm\n"
+                           f"⏳ Holat: Jarayonda")
+        else:
+            bot.send_message(message.chat.id, 
+                           f"❌ Balansingiz yetarli emas!\n"
+                           f"💰 Sizning balansingiz: {balance} so'm\n"
+                           f"💳 Buyurtma narxi: {total_price} so'm\n\n"
+                           f"Iltimos, avval hisobingizni to'ldiring.")
+    except ValueError:
+        bot.send_message(message.chat.id, "❌ Noto'g'ri format! Iltimos, faqat son kiriting.")
 
+# Hisobim
+@bot.message_handler(func=lambda message: message.text == "📊 Hisobim")
+def my_account(message):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute("SELECT balance, referals FROM users WHERE user_id = ?", (message.from_user.id,))
+    data = c.fetchone()
+    conn.close()
+    
+    if data:
+        balance, referals = data
+        bot.send_message(message.chat.id,
+                        f"📊 Hisobim ma'lumotlari:\n\n"
+                        f"🆔 ID: {message.from_user.id}\n"
+                        f"👤 Ism: {message.from_user.first_name}\n"
+                        f"💰 Balans: {balance} so'm\n"
+                        f"👥 Referallar: {referals}\n"
+                        f"🔗 Referal link: https://t.me/{bot.get_me().username}?start={message.from_user.id}")
 
+# Hisob to'ldirish
+@bot.message_handler(func=lambda message: message.text == "💰 Hisob To'ldirish")
+def top_up(message):
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    btn1 = types.InlineKeyboardButton("💳 Click", callback_data="pay_click")
+    btn2 = types.InlineKeyboardButton("📱 Payme", callback_data="pay_payme")
+    btn3 = types.InlineKeyboardButton("🏦 Bank karta", callback_data="pay_card")
+    markup.add(btn1, btn2, btn3)
+    
+    bot.send_message(message.chat.id,
+                    "💰 Hisobni to'ldirish usulini tanlang:",
+                    reply_markup=markup)
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith('pay_'))
+def handle_payment(call):
+    method = call.data.replace('pay_', '')
+    if method == 'click':
+        bot.send_message(call.message.chat.id,
+                        "💳 Click to'lov tizimi\n\n"
+                        "📞 Telefon: +998901234567\n"
+                        "💰 To'lov summasini kiriting:")
+    elif method == 'payme':
+        bot.send_message(call.message.chat.id,
+                        "📱 Payme to'lov tizimi\n\n"
+                        "📞 Telefon: +998901234567\n"
+                        "💰 To'lov summasini kiriting:")
+    elif method == 'card':
+        bot.send_message(call.message.chat.id,
+                        "🏦 Bank karta ma'lumotlari:\n\n"
+                        "💳 Karta: 8600 1234 5678 9012\n"
+                        "👤 Ismi: BEKZOD KARIMOV\n"
+                        "💰 To'lov summasini kiriting:")
 
+# Buyurtmalarim
+@bot.message_handler(func=lambda message: message.text == "📋 Buyurtmalarim")
+def my_orders(message):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute("SELECT order_id, service, quantity, price, status FROM orders WHERE user_id = ? ORDER BY order_id DESC LIMIT 10", 
+              (message.from_user.id,))
+    orders = c.fetchall()
+    conn.close()
+    
+    if orders:
+        text = "📋 So'nggi 10 ta buyurtmangiz:\n\n"
+        for order in orders:
+            status_emoji = "✅" if order[4] == "completed" else "⏳" if order[4] == "pending" else "❌"
+            text += f"{status_emoji} #{order[0]}: {order[1]} - {order[2]} dona ({order[3]} so'm)\n"
+        bot.send_message(message.chat.id, text)
+    else:
+        bot.send_message(message.chat.id, "📭 Hali buyurtmalar mavjud emas.")
 
+# Murojaat
+@bot.message_handler(func=lambda message: message.text == "📞 Murojaat")
+def contact(message):
+    bot.send_message(message.chat.id,
+                    "📞 Murojaat uchun:\n\n"
+                    "👨‍💻 Admin: @adminusername\n"
+                    "📧 Email: support@example.com\n"
+                    "💬 Xabaringizni yozib qoldirishingiz mumkin:")
 
+# Hamkorlik
+@bot.message_handler(func=lambda message: message.text == "🤝 Hamkorlik")
+def partnership(message):
+    bot.send_message(message.chat.id,
+                    "🤝 Hamkorlik shartlari:\n\n"
+                    "• Har bir referal uchun 10 so'm\n"
+                    "• Referal orqali buyurtma berilganda 5% chegirma\n"
+                    "• Minimal to'lov: 50 000 so'm\n\n"
+                    "🔗 Referal linkingiz: https://t.me/{bot.get_me().username}?start={}")
 
-if ($text == "/panel") {
-if ($cid == $admin) {
-bot('SendMessage', [
-'chat_id' => $cid,
-'text' => "<b>Admin paneliga xush kelibsiz!</b>",
-'parse_mode' => 'html',
-'reply_markup' => $panel,
-]);
-exit();
-}
-}
+# Qo'llanma
+@bot.message_handler(func=lambda message: message.text == "📖 Qo'llanma" or message.text == "/qollanma")
+def guide(message):
+    bot.send_message(message.chat.id,
+                    "📖 Bot qo'llanmasi:\n\n"
+                    "1️⃣ Xizmatni tanlang (Telegram, Instagram, TikTok, YouTube)\n"
+                    "2️⃣ Xizmat turini tanlang (obunachilar, like, ko'rishlar)\n"
+                    "3️⃣ Havolani yuboring\n"
+                    "4️⃣ Miqdorni kiriting\n"
+                    "5️⃣ Buyurtmani tasdiqlang\n\n"
+                    "💰 To'lov usullari: Click, Payme, Bank karta\n"
+                    "🤝 Hamkorlik: Do'stlaringizni taklif qiling va pul ishlang\n\n"
+                    "❓ Savollar bo'lsa, admin bilan bog'lanishingiz mumkin.")
 
-if ($data == "boshqarish") {
-bot('deleteMessage', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-]);
-}
+# Qidirish va 2-Bo'lim
+@bot.message_handler(func=lambda message: message.text in ["🔍 Qidirish", "📚 2-Bo'lim"])
+def other_sections(message):
+    bot.send_message(message.chat.id, "⚠️ Bu bo'lim hozircha ishga tushirilmagan. Tez orada ishga tushadi!")
 
-if ($text == "鉁� Xabar yuborish" and $cid == $admin) {
-bot('SendMessage', [
-'chat_id' => $cid,
-'text' => "<b>Yuboriladigan xabar turini tanlang;</b>",
-'parse_mode' => 'html',
-'reply_markup' => json_encode([
-'inline_keyboard' => [
-[['text' => "Oddiy", 'callback_data' => "send"]],
-[['text' => "Yopish", 'callback_data' => "boshqarish"]],
-]
-])
-]);
-exit();
-}
-
-if($text=="鉃★笍 Orqaga" and joinchat($cid)==true){
-bot('sendMessage',[
-'chat_id'=>$cid,
-'text'=>"<b>馃枼 Asosiy menyuga qaytdingiz.</b>",
-'parse_mode'=>"html",
-'reply_markup'=>json_encode([
-    'resize_keyboard'=>true,
-    'keyboard'=>[
-        [['text'=>$menu1],['text'=>$menu2]],
-        [['text'=>$menu3],['text'=>"馃敟 Reklam"]],
-    ]
-])
-]);
-}
-
-if ($data == "send") {
-bot('deleteMessage', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-]);
-bot('SendMessage', [
-'chat_id' => $cid2,
-'text' => "*Xabaringizni kiriting:*",
-'parse_mode' => "markdown",
-'reply_markup' => $boshqarish
-]);
-file_put_contents("step/$cid2.step", "send");
-exit();
-}
-
-if ($step == "send") {
-if ($cid == $admin) {
-$lich = file_get_contents("azo.dat");
-$lichka = explode("n", $lich);
-foreach ($lichka as $lichkalar) {
-$okuser = bot("SendMessage", [
-'chat_id' => $lichkalar,
-'text' => $text,
-'parse_mode' => 'html',
-'disable_web_page_preview' => true,
-]);
-}
-}
-}
-if ($okuser) {
-bot("sendmessage", [
-'chat_id' => $admin,
-'text' => "<b>Xabaringiz yuborildi!</b>",
-'parse_mode' => 'html',
-'reply_markup' => $panel
-]);
-unlink("step/$cid.step");
-exit();
-}
-
-if ($text == "馃搳 Statistika") {
-if ($cid == $admin) {
-$baza = file_get_contents("azo.dat");
-$obsh = substr_count($baza, "n");
-$start_time = round(microtime(true) * 1000);
-bot('SendMessage', [
-'chat_id' => $cid,
-'text' => "",
-'parse_mode' => 'html',
-]);
-$end_time = round(microtime(true) * 1000);
-$ping = $end_time - $start_time;
-bot('SendMessage', [
-'chat_id' => $cid,
-'text' => "馃挕 <b>Yuklanish:</b> <code>$ping</code>
-馃懃 <b>Foydalanuvchilar:</b> $obsh ta",
-'parse_mode' => 'html',
-'reply_markup' => json_encode([
-'inline_keyboard' => [
-[['text' => "Yopish", 'callback_data' => "boshqarish"]]
-]
-])
-]);
-exit();
-}
-}
-
-if($text=="馃敟 Reklam" and joinchat($cid)==true){
-bot('sendMessage',[
-'chat_id'=>$cid,
-'text'=>"<b>t.me/IskandarNeT</b>",
-'parse_mode'=>"html",
-'reply_markup'=>json_encode([
-    'resize_keyboard'=>true,
-    'keyboard'=>[
-]
-])
-]);
-}
-
-
-if ($text == "馃摙 Kanallar") {
-if ($cid == $admin) {
-bot('SendMessage', [
-'chat_id' => $cid,
-'text' => "<b>Quyidagilardan birini tanlang:</b>",
-'parse_mode' => 'html',
-'reply_markup' => json_encode([
-'inline_keyboard' => [
-[['text' => "馃攼 Majburiy obunalar", 'callback_data' => "majburiy"]],
-[['text' => "Yopish", 'callback_data' => "boshqarish"]]
-]
-])
-]);
-exit();
-}
-}
-
-if ($data == "kanallar") {
-bot('deleteMessage', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-]);
-bot('SendMessage', [
-'chat_id' => $cid2,
-'text' => "<b>Quyidagilardan birini tanlang:</b>",
-'parse_mode' => 'html',
-'reply_markup' => json_encode([
-'inline_keyboard' => [
-[['text' => "馃攼 Majburiy obunalar", 'callback_data' => "majburiy"]],
-[['text' => "Yopish", 'callback_data' => "boshqarish"]]
-]
-])
-]);
-exit();
-}
-
-if ($data == "majburiy") {
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-'text' => "<b>Kuting...</b>",
-'parse_mode' => 'html',
-]);
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2 + 1,
-'text' => "<b>Kuting...</b>",
-'parse_mode' => 'html',
-]);
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-'text' => "<b>Majburiy obunalarni sozlash bo'limidasiz:</b>",
-'parse_mode' => 'html',
-'reply_markup' => json_encode([
-'inline_keyboard' => [
-[['text' => "鉃� Qo'shish", 'callback_data' => "qoshish"]],
-[['text' => "馃搼 Ro'yxat", 'callback_data' => "royxat"], ['text' => "馃棏 O'chirish", 'callback_data' => "ochirish"]],
-[['text' => "鈼€锔� Orqaga", 'callback_data' => "kanallar"]]
-]
-])
-]);
-}
-
-if ($data == "qoshish") {
-bot('deleteMessage', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-]);
-bot('SendMessage', [
-'chat_id' => $cid2,
-'text' => "<b>Kanalingiz userini kiriting:
-
-Namuna:</b> SupperCoders-SupperCoderUz
-( Kanal nomi-Kanal_useri )",
-'parse_mode' => 'html',
-'reply_markup' => $boshqarish,
-]);
-file_put_contents("step/$cid2.step", "qo'shish");
-exit();
-}
-
-if ($step == "qo'shish") {
-if ($cid == $admin) {
-if (isset($text)) {
-if (mb_stripos($text, "-") !== false) {
-if ($kanal == null) {
-$a = $KanalMin + 1;
-file_put_contents("tizim/KanalMin.txt", $a);
-file_put_contents("tizim/kanal.txt", $text);
-bot('SendMessage', [
-'chat_id' => $admin,
-'text' => "<b>Muvaffaqiyatli o'zgartirildi!</b>",
-'parse_mode' => 'html',
-'reply_markup' => $asosiy
-]);
-unlink("step/$cid.step");
-exit();
-} else {
-file_put_contents("tizim/kanal.txt", "$kanaln$text");
-bot('SendMessage', [
-'chat_id' => $admin,
-'text' => "<b>Muvaffaqiyatli o'zgartirildi!</b>",
-'parse_mode' => 'html',
-'reply_markup' => $asosiy
-]);
-unlink("step/$cid.step");
-exit();
-}
-} else {
-bot('SendMessage', [
-'chat_id' => $cid,
-'text' => "<b>Kanalingiz userini kiriting:
-
-Namuna:</b> SupperCoders-SupperCoderUz
-( Kanal nomi-Kanal_useri )",
-'parse_mode' => 'html',
-]);
-exit();
-}
-}
-}
-}
-
-if ($data == "ochirish") {
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-'text' => "鈴� <b>Yuklanmoqda...</b>",
-'parse_mode' => 'html',
-]);
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2 + 1,
-'text' => "鈴� <b>Yuklanmoqda...</b>",
-'parse_mode' => 'html',
-]);
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-'text' => "鉁� <b>Kanallar muvaffaqiyatli o'chirildi!</b>",
-'parse_mode' => 'html',
-'reply_markup' => json_encode([
-'inline_keyboard' => [
-[['text' => "鈼€锔� Orqaga", 'callback_data' => "majburiy"]],
-]
-])
-]);
-unlink("tizim/kanal.txt");
-}
-
-if ($data == "royxat") {
-$soni = substr_count($kanal, "-");
-if ($kanal == null) {
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-'text' => "鈴� <b>Yuklanmoqda...</b>",
-'parse_mode' => 'html',
-]);
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2 + 1,
-'text' => "鈴� <b>Yuklanmoqda...</b>",
-'parse_mode' => 'html',
-]);
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-'text' => "馃搨 <b>Kanallar ro'yxati bo'sh!</b>",
-'parse_mode' => 'html',
-'reply_markup' => json_encode([
-'inline_keyboard' => [
-[['text' => "鈼€锔� Orqaga", 'callback_data' => "majburiy"]],
-]
-])
-]);
-} else {
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-'text' => "鈴� <b>Yuklanmoqda...</b>",
-'parse_mode' => 'html',
-]);
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2 + 1,
-'text' => "鈴� <b>Yuklanmoqda...</b>",
-'parse_mode' => 'html',
-]);
-bot('editMessageText', [
-'chat_id' => $cid2,
-'message_id' => $mid2,
-'text' => "<b>馃摙 Kanallar ro'yxati:</b>
-
-$kanal
-
-<b>Ulangan kanallar soni:</b> $soni ta",
-'parse_mode' => 'html',
-'reply_markup' => json_encode([
-'inline_keyboard' => [
-[['text' => "鈼€锔� Orqaga", 'callback_data' => "majburiy"]],
-]
-])
-]);
-}
-}
-
-?>
+# Botni ishga tushirish
+if __name__ == "__main__":
+    init_db()
+    print("Bot ishga tushdi...")
+    bot.infinity_polling()
