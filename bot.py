@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BOT_TOKEN = ("8390342230:AAFIAyiSJj6sxsZzePaO-srY2qy8vBC7bCU")
-ADMIN_ID = ("8537782289"))
+ADMIN_ID = "8537782289"
 CHANNEL = os.getenv("CHANNEL")
 
 bot = Bot(BOT_TOKEN)
