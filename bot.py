@@ -185,14 +185,15 @@ if($data == "result"){
         'chat_id'=>$cid2,
         'text'=>"🔔 <b>Obunangiz tasdiqlandi.</b>\n\n/start",
         'parse_mode'=>'html',
-    ]);
-    exit();
-}
+   if ($text == "/start") {
 
-/start</b>",
-'parse_mode'=>'html',
-]);
-exit();
+    bot('sendMessage', [
+        'chat_id' => $chat_id,
+        'text' => "<b>Xush kelibsiz!</b>\nBotdan foydalanish uchun pastdagi tugmalardan foydalaning.",
+        'parse_mode' => 'html'
+    ]);
+
+    exit();
 }
 
 $panel = json_encode([
