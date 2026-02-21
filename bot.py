@@ -182,7 +182,10 @@ bot('deleteMessage',[
 ]);
 bot('SendMessage',[
 'chat_id'=>$cid2,
-'text'=>"鉁� <b>Obunangiz tasdiqlandi.
+await message.answer(
+    "🔔 <b>Obunangiz tasdiqlandi.</b>",
+    parse_mode="HTML"
+)
 
 /start</b>",
 'parse_mode'=>'html',
