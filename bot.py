@@ -235,12 +235,9 @@ bot('sendMessage',[
     'parse_mode'=>"html"
 ]);
 
-exit();
-}
-
-馃摓 $botname sizga telefon raqam qaysi viloyatdan olinganligini aniqlab beradi.
-鈿狅笍 $botname faqat Ucell va Beeline raqamlari uchun ishlaydi. Boshqa raqamlarni topishda xatoliklarga uchrashi mumkin.
-鉁� Ma'lumot olmoqchi bo驶lgan raqamingizni yozib yuboring.
+'text'=>"📱 $botname sizga telefon raqam qaysi viloyatdan olinganligini aniqlab beradi.\n\n
+⚠️ $botname faqat Ucell va Beeline raqamlari uchun ishlaydi. Boshqa raqamlarni topishda xatoliklarga uchrashi mumkin.\n\n
+✅ Ma'lumot olmoqchi bo'lgan raqamingizni yozib yuboring.",
 
 馃摑Botga raqamni +998901234567 ko'rinishida yuboring yani raqamlar orqasida bo'sh joy bo'lmasin
 
