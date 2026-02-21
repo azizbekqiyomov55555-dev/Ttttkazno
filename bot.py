@@ -5,7 +5,7 @@ import random
 import string
 
 # Bot tokenini o'rnating (https://t.me/BotFather dan oling)
-TOKEN = "8390342230:AAFIAyiSJj6sxsZzePaO-srY2qy8vBC7bCU"
+TOKEN = "8490088431:AAH-5kbO11C7TH9Q6IRYByQ45xoyb0fr7QY"
 bot = telebot.TeleBot(TOKEN)
 
 # Ma'lumotlar bazasini sozlash
