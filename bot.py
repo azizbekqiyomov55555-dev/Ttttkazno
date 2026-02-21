@@ -13,7 +13,7 @@ import aiosqlite
 
 # ================= CONFIG =================
 
-BOT_TOKEN = "BOT_TOKENINGNI_BU_YERGA_QO'Y"
+BOT_TOKEN = "8390342230:AAFIAyiSJj6sxsZzePaO-srY2qy8vBC7bCU"
 ADMIN_ID = 8537782289  # int bo'lishi shart
 CHANNEL = "@KANAL_USERNAME"  # @ bilan yoziladi
 
