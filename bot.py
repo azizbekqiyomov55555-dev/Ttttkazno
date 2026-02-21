@@ -420,12 +420,13 @@ def choose_service(message):
         "🎵 TikTok": "tiktok",
         "▶️ YouTube": "youtube"
     }
-    service = service_map[message.text]
-    bot.send_message(
-        message.chat.id, 
-        f"{message.text} xizmatlaridan birini tanlang:",
-        reply_markup=get_service_inline(service)
-    )
+    service = service_map.get(message.text)
+    if service:
+        bot.send_message(
+            message.chat.id, 
+            f"{message.text} xizmatlaridan birini tanlang:",
+            reply_markup=get_service_inline(service)
+        )
 
 # ------------------- SERVICE CALLBACKLAR -------------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith('service_'))
@@ -435,18 +436,18 @@ def service_callback(call):
     
     service_names = {
         'tg_followers': 'Telegram obunachilar',
-        'tg_views': 'Telegram ko\'rishlar',
+        'tg_views': 'Telegram korishlar',
         'tg_likes': 'Telegram like',
         'inst_followers': 'Instagram obunachilar',
         'inst_likes': 'Instagram like',
-        'inst_views': 'Instagram ko\'rishlar',
+        'inst_views': 'Instagram korishlar',
         'inst_comments': 'Instagram comment',
         'tt_followers': 'TikTok obunachilar',
         'tt_likes': 'TikTok like',
-        'tt_views': 'TikTok ko\'rishlar',
+        'tt_views': 'TikTok korishlar',
         'yt_followers': 'YouTube obunachilar',
         'yt_likes': 'YouTube like',
-        'yt_views': 'YouTube ko\'rishlar',
+        'yt_views': 'YouTube korishlar',
         'yt_comments': 'YouTube comment'
     }
     service_name = service_names.get(service_code, service_code)
@@ -500,9 +501,13 @@ def process_quantity(message, service_code, service_name, price_per_unit, link):
         )
         return
     
+    # Balansdan pul yechish
     update_balance(user_id, total_price, add=False)
+    
+    # Buyurtma yaratish
     order_id = create_order(user_id, service_code, service_name, link, quantity, total_price)
     
+    # Foydalanuvchiga xabar
     bot.send_message(
         user_id,
         f"✅ Buyurtma qabul qilindi!\n\n"
@@ -516,6 +521,7 @@ def process_quantity(message, service_code, service_name, price_per_unit, link):
         reply_markup=get_bottom_keyboard()
     )
     
+    # Adminlarga xabar
     for admin_id in ADMIN_IDS:
         try:
             bot.send_message(
@@ -530,10 +536,6 @@ def process_quantity(message, service_code, service_name, price_per_unit, link):
         except:
             pass
     
+    # Buyurtmani bajarish jarayoni (simulyatsiya)
     def process_order(order_id, user_id):
-        time.sleep(30)
-        update_order_status(order_id, 'processing')
-        time.sleep(90)
-        update_order_status(order_id, 'completed')
-        try:
-            bot.send_message(user_id, f"✅ #{or
+        time.sleep
