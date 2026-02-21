@@ -11,9 +11,9 @@ import os
 
 # ------------------- SOZLAMALAR -------------------
 BOT_TOKEN = "8490088431:AAH-5kbO11C7TH9Q6IRYByQ45xoyb0fr7QY"  # BotFather dan olingan token
-ADMIN_IDS = [8537782289, 987654321]  # Adminlar Telegram ID si (o'zingiznikini qo'ying)
+ADMIN_IDS = [8537782289, 987654321]  # Adminlar Telegram ID si
 
-# Narxlar (so'm / dona) – admin panel orqali o'zgartirish mumkin
+# Narxlar (so'm / dona)
 DEFAULT_PRICES = {
     'telegram_followers': 10,
     'telegram_views': 5,
@@ -62,23 +62,23 @@ def init_db():
                   link TEXT,
                   quantity INTEGER,
                   price INTEGER,
-                  status TEXT DEFAULT 'pending',  -- pending, processing, completed, cancelled
+                  status TEXT DEFAULT 'pending',
                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                   completed_at TIMESTAMP,
                   FOREIGN KEY(user_id) REFERENCES users(user_id))''')
     
-    # Tranzaksiyalar (hisob to'ldirish)
+    # Tranzaksiyalar
     c.execute('''CREATE TABLE IF NOT EXISTS transactions
                  (txn_id INTEGER PRIMARY KEY AUTOINCREMENT,
                   user_id INTEGER,
                   amount INTEGER,
-                  method TEXT,  -- click, payme, card, referal
-                  status TEXT DEFAULT 'pending',  -- pending, completed, failed
+                  method TEXT,
+                  status TEXT DEFAULT 'pending',
                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                   completed_at TIMESTAMP,
                   FOREIGN KEY(user_id) REFERENCES users(user_id))''')
     
-    # Sozlamalar (narxlar va boshqalar)
+    # Sozlamalar
     c.execute('''CREATE TABLE IF NOT EXISTS settings
                  (key TEXT PRIMARY KEY,
                   value TEXT)''')
@@ -107,37 +107,36 @@ def set_setting(key, value):
     conn.commit()
     conn.close()
 
-def get_user(user_id):
+def get_user(user_id, username=None, first_name=None, last_name=None):
     """Foydalanuvchi ma'lumotlarini olish (agar yo'q bo'lsa yaratish)"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     user = c.fetchone()
+    
     if not user:
-        # Yangi foydalanuvchi yaratish
         referal_link = generate_referal_link()
-        c.execute('''INSERT INTO users (user_id, username, first_name, last_name, referal_link, last_activity)
+        c.execute('''INSERT INTO users 
+                     (user_id, username, first_name, last_name, referal_link, last_activity)
                      VALUES (?, ?, ?, ?, ?, ?)''',
-                  (user_id, None, None, None, referal_link, datetime.now()))
+                  (user_id, username, first_name, last_name, referal_link, datetime.now()))
         conn.commit()
         c.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
         user = c.fetchone()
     else:
-        # Oxirgi faollikni yangilash
-        c.execute("UPDATE users SET last_activity = ? WHERE user_id = ?", (datetime.now(), user_id))
+        c.execute("UPDATE users SET last_activity = ? WHERE user_id = ?", 
+                  (datetime.now(), user_id))
+        if username or first_name or last_name:
+            c.execute('''UPDATE users SET 
+                         username = COALESCE(?, username),
+                         first_name = COALESCE(?, first_name),
+                         last_name = COALESCE(?, last_name)
+                         WHERE user_id = ?''',
+                      (username, first_name, last_name, user_id))
         conn.commit()
+    
     conn.close()
     return user
-
-def update_user_info(user_id, username, first_name, last_name):
-    """Foydalanuvchi ma'lumotlarini yangilash"""
-    conn = sqlite3.connect('bot_data.db')
-    c = conn.cursor()
-    c.execute('''UPDATE users SET username = ?, first_name = ?, last_name = ?, last_activity = ?
-                 WHERE user_id = ?''',
-              (username, first_name, last_name, datetime.now(), user_id))
-    conn.commit()
-    conn.close()
 
 def generate_referal_link():
     """Unikal referal link yaratish"""
@@ -147,9 +146,8 @@ def add_referal_bonus(referrer_id, new_user_id):
     """Referal orqali kelgan foydalanuvchi uchun bonus berish"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    # Refererga 10 so'm bonus
-    c.execute("UPDATE users SET balance = balance + 10, referals = referals + 1 WHERE user_id = ?", (referrer_id,))
-    # Yangi foydalanuvchiga 5 so'm bonus
+    c.execute("UPDATE users SET balance = balance + 10, referals = referals + 1 WHERE user_id = ?", 
+              (referrer_id,))
     c.execute("UPDATE users SET balance = balance + 5 WHERE user_id = ?", (new_user_id,))
     conn.commit()
     conn.close()
@@ -160,12 +158,12 @@ def get_balance(user_id):
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("SELECT balance FROM users WHERE user_id = ?", (user_id,))
-    balance = c.fetchone()[0]
+    result = c.fetchone()
     conn.close()
-    return balance
+    return result[0] if result else 0
 
 def update_balance(user_id, amount, add=True):
-    """Balansni o'zgartirish (add=True qo'shish, False ayirish)"""
+    """Balansni o'zgartirish"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     if add:
@@ -179,7 +177,8 @@ def create_order(user_id, service_code, service_name, link, quantity, price):
     """Yangi buyurtma yaratish"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
-    c.execute('''INSERT INTO orders (user_id, service_code, service_name, link, quantity, price, status)
+    c.execute('''INSERT INTO orders 
+                 (user_id, service_code, service_name, link, quantity, price, status)
                  VALUES (?, ?, ?, ?, ?, ?, 'pending')''',
               (user_id, service_code, service_name, link, quantity, price))
     order_id = c.lastrowid
@@ -199,15 +198,18 @@ def get_user_orders(user_id, limit=10):
     return orders
 
 def get_all_orders(limit=50, status=None):
-    """Barcha buyurtmalarni olish (admin uchun)"""
+    """Barcha buyurtmalarni olish"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     if status:
-        c.execute('''SELECT o.order_id, o.user_id, u.username, o.service_name, o.link, o.quantity, o.price, o.status, o.created_at
+        c.execute('''SELECT o.order_id, o.user_id, u.username, o.service_name, 
+                            o.link, o.quantity, o.price, o.status, o.created_at
                      FROM orders o LEFT JOIN users u ON o.user_id = u.user_id
-                     WHERE o.status = ? ORDER BY o.created_at DESC LIMIT ?''', (status, limit))
+                     WHERE o.status = ? ORDER BY o.created_at DESC LIMIT ?''', 
+                  (status, limit))
     else:
-        c.execute('''SELECT o.order_id, o.user_id, u.username, o.service_name, o.link, o.quantity, o.price, o.status, o.created_at
+        c.execute('''SELECT o.order_id, o.user_id, u.username, o.service_name, 
+                            o.link, o.quantity, o.price, o.status, o.created_at
                      FROM orders o LEFT JOIN users u ON o.user_id = u.user_id
                      ORDER BY o.created_at DESC LIMIT ?''', (limit,))
     orders = c.fetchall()
@@ -238,7 +240,7 @@ def create_transaction(user_id, amount, method):
     return txn_id
 
 def complete_transaction(txn_id):
-    """Tranzaksiyani yakunlash va balansga qo'shish"""
+    """Tranzaksiyani yakunlash"""
     conn = sqlite3.connect('bot_data.db')
     c = conn.cursor()
     c.execute("SELECT user_id, amount FROM transactions WHERE txn_id = ?", (txn_id,))
@@ -253,6 +255,40 @@ def complete_transaction(txn_id):
         return user_id, amount
     conn.close()
     return None, None
+
+def get_all_users(limit=10):
+    """Barcha foydalanuvchilarni olish"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute('''SELECT user_id, username, first_name, balance, referals, joined_date 
+                 FROM users ORDER BY joined_date DESC LIMIT ?''', (limit,))
+    users = c.fetchall()
+    conn.close()
+    return users
+
+def get_stats():
+    """Statistika ma'lumotlarini olish"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) FROM users")
+    total_users = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM orders")
+    total_orders = c.fetchone()[0]
+    c.execute("SELECT SUM(price) FROM orders WHERE status='completed'")
+    total_income = c.fetchone()[0] or 0
+    c.execute("SELECT COUNT(*) FROM orders WHERE status='pending'")
+    pending_orders = c.fetchone()[0]
+    conn.close()
+    return total_users, total_orders, total_income, pending_orders
+
+def get_all_prices():
+    """Barcha narxlarni olish"""
+    conn = sqlite3.connect('bot_data.db')
+    c = conn.cursor()
+    c.execute("SELECT key, value FROM settings WHERE key LIKE '%followers%' OR key LIKE '%likes%' OR key LIKE '%views%' OR key LIKE '%comments%'")
+    prices = c.fetchall()
+    conn.close()
+    return prices
 
 # ------------------- BOT OB'EKTI -------------------
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -272,7 +308,7 @@ def get_main_keyboard():
     return markup
 
 def get_bottom_keyboard():
-    """Pastki menyu (profil, to'ldirish, murojaat va h.k.)"""
+    """Pastki menyu"""
     markup = types.ReplyKeyboardMarkup(row_width=3, resize_keyboard=True)
     btn1 = types.KeyboardButton("📊 Hisobim")
     btn2 = types.KeyboardButton("💰 Hisob To'ldirish")
@@ -315,9 +351,9 @@ def get_service_inline(service):
     return markup
 
 def get_price(service_code):
-    """Berilgan xizmat kodiga mos narxni qaytarish (sozlamadan)"""
+    """Berilgan xizmat kodiga mos narxni qaytarish"""
     price_str = get_setting(service_code)
-    return int(price_str) if price_str else 0
+    return int(price_str) if price_str else 5
 
 def format_order_status(status):
     """Holatni chiroyli qilib qaytarish"""
@@ -339,15 +375,13 @@ def start(message):
     first_name = message.from_user.first_name
     last_name = message.from_user.last_name
     
-    # Foydalanuvchini bazaga qo'shish/yangilash
-    get_user(user_id)
-    update_user_info(user_id, username, first_name, last_name)
+    # Foydalanuvchini bazaga qo'shish
+    get_user(user_id, username, first_name, last_name)
     
     # Referal tizimi
     args = message.text.split()
     if len(args) > 1:
         referal_code = args[1]
-        # referal_code bu user_id emas, balki referal_link (masalan, "abc123")
         conn = sqlite3.connect('bot_data.db')
         c = conn.cursor()
         c.execute("SELECT user_id FROM users WHERE referal_link = ?", (referal_code,))
@@ -356,18 +390,28 @@ def start(message):
         if referrer and referrer[0] != user_id:
             add_referal_bonus(referrer[0], user_id)
             try:
-                bot.send_message(referrer[0], "🎉 Sizning referalingiz orqali yangi foydalanuvchi qo'shildi! +10 so'm bonus hisobingizga qo'shildi.")
+                bot.send_message(
+                    referrer[0], 
+                    "🎉 Sizning referalingiz orqali yangi foydalanuvchi qo'shildi! +10 so'm bonus hisobingizga qo'shildi."
+                )
             except:
                 pass
     
-    # Salomlashish va asosiy menyu
-    bot.send_message(user_id, f"👋 Assalomu alaykum, {first_name}!\n\n"
-                              f"🔥 Botimizga xush kelibsiz! Bu yerda siz ijtimoiy tarmoqlar uchun "
-                              f"obuna, like, ko'rish va boshqa xizmatlarni buyurtma qilishingiz mumkin.",
-                     reply_markup=get_main_keyboard())
-    bot.send_message(user_id, "👇 Quyidagi menyudan xizmatni tanlang:", reply_markup=get_bottom_keyboard())
+    # Salomlashish
+    bot.send_message(
+        user_id, 
+        f"👋 Assalomu alaykum, {first_name}!\n\n"
+        f"🔥 Botimizga xush kelibsiz! Bu yerda siz ijtimoiy tarmoqlar uchun "
+        f"obuna, like, ko'rish va boshqa xizmatlarni buyurtma qilishingiz mumkin.",
+        reply_markup=get_main_keyboard()
+    )
+    bot.send_message(
+        user_id, 
+        "👇 Quyidagi menyudan xizmatni tanlang:", 
+        reply_markup=get_bottom_keyboard()
+    )
 
-# ------------------- XIZMATLAR (TELEGRAM, INSTAGRAM, TikTok, YouTube) -------------------
+# ------------------- XIZMATLAR -------------------
 @bot.message_handler(func=lambda m: m.text in ["📱 Telegram", "📷 Instagram", "🎵 TikTok", "▶️ YouTube"])
 def choose_service(message):
     service_map = {
@@ -377,17 +421,18 @@ def choose_service(message):
         "▶️ YouTube": "youtube"
     }
     service = service_map[message.text]
-    bot.send_message(message.chat.id, f"{message.text} xizmatlaridan birini tanlang:",
-                     reply_markup=get_service_inline(service))
+    bot.send_message(
+        message.chat.id, 
+        f"{message.text} xizmatlaridan birini tanlang:",
+        reply_markup=get_service_inline(service)
+    )
 
 # ------------------- SERVICE CALLBACKLAR -------------------
 @bot.callback_query_handler(func=lambda call: call.data.startswith('service_'))
 def service_callback(call):
     service_code = call.data.replace('service_', '')
-    # service_code masalan: tg_followers, inst_likes, ...
     user_id = call.from_user.id
     
-    # Xizmat nomini chiroyli qilib olish
     service_names = {
         'tg_followers': 'Telegram obunachilar',
         'tg_views': 'Telegram ko\'rishlar',
@@ -406,16 +451,14 @@ def service_callback(call):
     }
     service_name = service_names.get(service_code, service_code)
     
-    # Narxni olish
     price_per_unit = get_price(service_code)
-    if not price_per_unit:
-        price_per_unit = 5  # default
     
-    # Foydalanuvchidan link so'rash
-    msg = bot.send_message(call.message.chat.id,
-                          f"📌 {service_name} buyurtma qilish\n\n"
-                          f"💰 Narx: {price_per_unit} so'm / dona\n\n"
-                          f"Iltimos, havolani (link) yuboring:")
+    msg = bot.send_message(
+        call.message.chat.id,
+        f"📌 {service_name} buyurtma qilish\n\n"
+        f"💰 Narx: {price_per_unit} so'm / dona\n\n"
+        f"Iltimos, havolani (link) yuboring:"
+    )
     bot.register_next_step_handler(msg, process_link, service_code, service_name, price_per_unit)
     bot.answer_callback_query(call.id)
 
@@ -423,10 +466,11 @@ def process_link(message, service_code, service_name, price_per_unit):
     link = message.text.strip()
     user_id = message.from_user.id
     
-    # Miqdorni so'rash
-    msg = bot.send_message(message.chat.id,
-                          f"🔗 Link qabul qilindi!\n\n"
-                          f"Endi {service_name} uchun miqdorni kiriting (masalan: 1000):")
+    msg = bot.send_message(
+        message.chat.id,
+        f"🔗 Link qabul qilindi!\n\n"
+        f"Endi {service_name} uchun miqdorni kiriting (masalan: 1000):"
+    )
     bot.register_next_step_handler(msg, process_quantity, service_code, service_name, price_per_unit, link)
 
 def process_quantity(message, service_code, service_name, price_per_unit, link):
@@ -435,7 +479,10 @@ def process_quantity(message, service_code, service_name, price_per_unit, link):
         if quantity <= 0:
             raise ValueError
     except ValueError:
-        bot.send_message(message.chat.id, "❌ Noto'g'ri format! Iltimos, musbat butun son kiriting.")
+        bot.send_message(
+            message.chat.id, 
+            "❌ Noto'g'ri format! Iltimos, musbat butun son kiriting."
+        )
         return
     
     user_id = message.from_user.id
@@ -443,55 +490,50 @@ def process_quantity(message, service_code, service_name, price_per_unit, link):
     balance = get_balance(user_id)
     
     if balance < total_price:
-        bot.send_message(message.chat.id,
-                        f"❌ Balansingiz yetarli emas!\n"
-                        f"💰 Sizning balansingiz: {balance} so'm\n"
-                        f"💳 Buyurtma narxi: {total_price} so'm\n\n"
-                        f"Iltimos, avval hisobingizni to'ldiring.",
-                        reply_markup=get_bottom_keyboard())
+        bot.send_message(
+            message.chat.id,
+            f"❌ Balansingiz yetarli emas!\n"
+            f"💰 Sizning balansingiz: {balance} so'm\n"
+            f"💳 Buyurtma narxi: {total_price} so'm\n\n"
+            f"Iltimos, avval hisobingizni to'ldiring.",
+            reply_markup=get_bottom_keyboard()
+        )
         return
     
-    # Balansdan ayirish
     update_balance(user_id, total_price, add=False)
-    
-    # Buyurtma yaratish
     order_id = create_order(user_id, service_code, service_name, link, quantity, total_price)
     
-    # Tasdiqlash xabari
-    bot.send_message(user_id,
-                    f"✅ Buyurtma qabul qilindi!\n\n"
-                    f"📌 Buyurtma raqami: #{order_id}\n"
-                    f"📌 Xizmat: {service_name}\n"
-                    f"🔗 Link: {link}\n"
-                    f"📊 Miqdor: {quantity}\n"
-                    f"💰 Narx: {total_price} so'm\n"
-                    f"⏳ Holat: ⏳ Kutilmoqda\n\n"
-                    f"Buyurtmangiz tez orada bajariladi.",
-                    reply_markup=get_bottom_keyboard())
+    bot.send_message(
+        user_id,
+        f"✅ Buyurtma qabul qilindi!\n\n"
+        f"📌 Buyurtma raqami: #{order_id}\n"
+        f"📌 Xizmat: {service_name}\n"
+        f"🔗 Link: {link}\n"
+        f"📊 Miqdor: {quantity}\n"
+        f"💰 Narx: {total_price} so'm\n"
+        f"⏳ Holat: ⏳ Kutilmoqda\n\n"
+        f"Buyurtmangiz tez orada bajariladi.",
+        reply_markup=get_bottom_keyboard()
+    )
     
-    # Adminlarga xabar (ixtiyoriy)
     for admin_id in ADMIN_IDS:
         try:
-            bot.send_message(admin_id,
-                            f"🆕 Yangi buyurtma!\n"
-                            f"👤 Foydalanuvchi: {user_id}\n"
-                            f"📌 Xizmat: {service_name}\n"
-                            f"🔗 Link: {link}\n"
-                            f"📊 Miqdor: {quantity}\n"
-                            f"💰 Narx: {total_price} so'm")
+            bot.send_message(
+                admin_id,
+                f"🆕 Yangi buyurtma!\n"
+                f"👤 Foydalanuvchi: {user_id}\n"
+                f"📌 Xizmat: {service_name}\n"
+                f"🔗 Link: {link}\n"
+                f"📊 Miqdor: {quantity}\n"
+                f"💰 Narx: {total_price} so'm"
+            )
         except:
             pass
     
-    # Bu yerda buyurtmani bajarish jarayonini simulyatsiya qilish uchun alohida thread ishga tushirish mumkin
-    # Masalan, 30 soniyadan keyin "processing", 2 daqiqadan keyin "completed" qilish
-    def process_order(order_id):
-        time.sleep(30)  # 30 soniya kutilmoqda
+    def process_order(order_id, user_id):
+        time.sleep(30)
         update_order_status(order_id, 'processing')
-        # Foydalanuvchiga xabar (ixtiyoriy)
-        # bot.send_message(user_id, f"⚙️ #{order_id} - buyurtma ishga tushdi.")
-        time.sleep(90)  # 1.5 daqiqa
+        time.sleep(90)
         update_order_status(order_id, 'completed')
-        bot.send_message(
-    user_id,
-    "Xabar matni"
-        )
+        try:
+            bot.send_message(user_id, f"✅ #{or
