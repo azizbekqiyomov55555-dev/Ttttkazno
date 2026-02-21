@@ -235,61 +235,70 @@ bot('sendMessage',[
     'parse_mode'=>"html"
 ]);
 
-'text'=>"📱 $botname sizga telefon raqam qaysi viloyatdan olinganligini aniqlab beradi.\n\n
-⚠️ $botname faqat Ucell va Beeline raqamlari uchun ishlaydi. Boshqa raqamlarni topishda xatoliklarga uchrashi mumkin.\n\n
-✅ Ma'lumot olmoqchi bo'lgan raqamingizni yozib yuboring.",
+'text'=>"📱 $botname sizga telefon raqam qaysi viloyatdan olinganligini aniqlab beradi.
 
-馃摑Botga raqamni +998901234567 ko'rinishida yuboring yani raqamlar orqasida bo'sh joy bo'lmasin
+⚠️ $botname faqat Ucell va Beeline raqamlari uchun ishlaydi. Boshqa raqamlarni topishda xatoliklarga uchrashi mumkin.
 
-馃馃徎鈥嶐煉� Dasturchi: @asilbek_zokirov</b>",
+✅ Ma'lumot olmoqchi bo'lgan raqamingizni yozib yuboring.
+
+📩 Botga raqamni +998901234567 ko'rinishida yuboring. Raqam orasida bo'sh joy bo'lmasin.
+
+👨‍💻 Dasturchi: @asilbek_zokirov",
 'parse_mode'=>"html",
 'reply_markup'=>json_encode([
     'resize_keyboard'=>true,
     'keyboard'=>[
-        [['text'=>$menu1],['text'=>$menu2]],
-        [['text'=>$menu3],['text'=>"馃敟 Reklam"]],
+        [ ['text'=>$menu1], ['text'=>$menu2] ],
+        [ ['text'=>$menu3], ['text'=>"📢 Reklama"] ],
     ]
 ])
 ]);
-}
-
-
-
-
-
-
 mkdir('step');
 $step = file_get_contents("step/$cid.step");
 
 if($text==$menu1){
-    bot('SendMessage',[
+    bot('sendMessage',[
         'chat_id'=>$cid, 
-        'text'=>"馃摓 Nomer kiriting",
+        'text'=>"📱 Nomer kiriting",
         'parse_mode'=>'html',
         'reply_markup'=>json_encode([
-    'resize_keyboard'=>true,
-    'keyboard'=>[
-        [['text'=>"鉃★笍 Orqaga"]],
-        ]
-   ])
-]);
-        file_put_contents("step/$cid.step","nomer");
+            'resize_keyboard'=>true,
+            'keyboard'=>[
+                [ ['text'=>"⬅️ Orqaga"] ],
+            ]
+        ])
+    ]);
+    file_put_contents("step/$cid.step","nomer");
 }
 
-
 if($text==$menu2){
-    bot('SendMessage',[
+    bot('sendMessage',[
         'chat_id'=>$cid, 
-        'text'=>"馃摓 Nomer kiriting",
+        'text'=>"📱 Nomer kiriting",
         'parse_mode'=>'html',
         'reply_markup'=>json_encode([
-    'resize_keyboard'=>true,
-    'keyboard'=>[
-        [['text'=>"鉃★笍 Orqaga"]],
-        ]
-   ])
-]);
-        file_put_contents("step/$cid.step","bomber1");
+            'resize_keyboard'=>true,
+            'keyboard'=>[
+                [ ['text'=>"⬅️ Orqaga"] ],
+            ]
+        ])
+    ]);
+    file_put_contents("step/$cid.step","bomber1");
+}
+
+if($text==$menu3){
+    bot('sendMessage',[
+        'chat_id'=>$cid, 
+        'text'=>"📱 Nomer kiriting",
+        'parse_mode'=>'html',
+        'reply_markup'=>json_encode([
+            'resize_keyboard'=>true,
+            'keyboard'=>[
+                [ ['text'=>"⬅️ Orqaga"] ],
+            ]
+        ])
+    ]);
+    file_put_contents("step/$cid.step","bomber2");
 }
 
 
@@ -305,8 +314,7 @@ if($text==$menu3){
         ]
    ])
 ]);
-        file_put_contents("step/$cid.step","bomber2");
-}
+        file_put_contents("step/$cid.step","bomber2")
 
 if($step=="nomer"){
 $mroan = json_decode(file_get_contents("https://haqiqiy.uz/api/num/index.php?num=$text"));
