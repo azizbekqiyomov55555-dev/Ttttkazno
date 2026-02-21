@@ -227,11 +227,16 @@ $menu1 = "馃摓 Nomer Aniqlash";
 $menu2 = "馃挰 Sms Bomber";
 $menu3 = "鈽勶笍 Telegram Bomber";
 
-
 if($text=="/start" and joinchat($cid)==true){
+
 bot('sendMessage',[
-'chat_id'=>$cid,
-'text'=>"<b>鉁� Salom $nameru! 芦 $botname 禄 ga xush kelibsiz!
+    'chat_id'=>$cid,
+    'text'=>"<b>Salom $nameru! $botname ga xush kelibsiz!</b>",
+    'parse_mode'=>"html"
+]);
+
+exit();
+}
 
 馃摓 $botname sizga telefon raqam qaysi viloyatdan olinganligini aniqlab beradi.
 鈿狅笍 $botname faqat Ucell va Beeline raqamlari uchun ishlaydi. Boshqa raqamlarni topishda xatoliklarga uchrashi mumkin.
