@@ -10,13 +10,12 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 import aiosqlite
-from dotenv import load_dotenv
 
-load_dotenv()
+# ================= CONFIG =================
 
-BOT_TOKEN = ("8390342230:AAFIAyiSJj6sxsZzePaO-srY2qy8vBC7bCU")
-ADMIN_ID = "8537782289"
-CHANNEL = os.getenv("CHANNEL")
+BOT_TOKEN = "BOT_TOKENINGNI_BU_YERGA_QO'Y"
+ADMIN_ID = 8537782289  # int bo'lishi shart
+CHANNEL = "@KANAL_USERNAME"  # @ bilan yoziladi
 
 bot = Bot(BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -53,7 +52,10 @@ async def add_user(user_id, referal=None):
 
 async def get_balance(user_id):
     async with aiosqlite.connect(DB) as db:
-        cursor = await db.execute("SELECT balance FROM users WHERE user_id=?", (user_id,))
+        cursor = await db.execute(
+            "SELECT balance FROM users WHERE user_id=?",
+            (user_id,)
+        )
         row = await cursor.fetchone()
         return row[0] if row else 0
 
@@ -113,16 +115,25 @@ main_menu = ReplyKeyboardMarkup(
 def admin_keyboard(user_id, amount):
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"approve_{user_id}_{amount}"),
-            InlineKeyboardButton(text="❌ Bekor qilish", callback_data="cancel")
+            InlineKeyboardButton(
+                text="✅ Tasdiqlash",
+                callback_data=f"approve_{user_id}_{amount}"
+            ),
+            InlineKeyboardButton(
+                text="❌ Bekor qilish",
+                callback_data="cancel"
+            )
         ]
     ])
 
 # ================= CHANNEL CHECK =================
 
 async def check_sub(user_id):
-    member = await bot.get_chat_member(CHANNEL, user_id)
-    return member.status in ["member", "administrator", "creator"]
+    try:
+        member = await bot.get_chat_member(CHANNEL, user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except:
+        return False
 
 # ================= START =================
 
@@ -130,17 +141,26 @@ async def check_sub(user_id):
 async def start(message: types.Message):
     args = message.text.split()
     referal = None
-    if len(args) > 1:
+    if len(args) > 1 and args[1].isdigit():
         referal = int(args[1])
 
     await add_user(message.from_user.id, referal)
 
     if not await check_sub(message.from_user.id):
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📢 Obuna bo‘lish", url=f"https://t.me/{CHANNEL.replace('@','')}")],
-            [InlineKeyboardButton(text="✅ Tekshirish", callback_data="check_sub")]
+            [InlineKeyboardButton(
+                text="📢 Obuna bo‘lish",
+                url=f"https://t.me/{CHANNEL.replace('@','')}"
+            )],
+            [InlineKeyboardButton(
+                text="✅ Tekshirish",
+                callback_data="check_sub"
+            )]
         ])
-        await message.answer("Botdan foydalanish uchun kanalga obuna bo‘ling!", reply_markup=kb)
+        await message.answer(
+            "Botdan foydalanish uchun kanalga obuna bo‘ling!",
+            reply_markup=kb
+        )
         return
 
     await message.answer("Xush kelibsiz!", reply_markup=main_menu)
@@ -150,9 +170,15 @@ async def start(message: types.Message):
 @dp.callback_query(F.data == "check_sub")
 async def sub_check(callback: types.CallbackQuery):
     if await check_sub(callback.from_user.id):
-        await callback.message.answer("Rahmat! Endi foydalanishingiz mumkin.", reply_markup=main_menu)
+        await callback.message.answer(
+            "Rahmat! Endi foydalanishingiz mumkin.",
+            reply_markup=main_menu
+        )
     else:
-        await callback.answer("Hali obuna bo‘lmadingiz!", show_alert=True)
+        await callback.answer(
+            "Hali obuna bo‘lmadingiz!",
+            show_alert=True
+        )
 
 # ================= BALANCE =================
 
@@ -170,7 +196,7 @@ async def promo_start(message: types.Message, state: FSMContext):
 
 @dp.message(PromoState.waiting_code)
 async def promo_process(message: types.Message, state: FSMContext):
-    result = await use_promocode(message.text)
+    result = await use_promocode(message.text.strip())
     if result is None:
         await message.answer("Promo kod topilmadi!")
     elif result == "USED":
@@ -184,7 +210,8 @@ async def promo_process(message: types.Message, state: FSMContext):
 
 @dp.message(F.text == "👥 Referal")
 async def referal(message: types.Message):
-    link = f"https://t.me/{(await bot.me()).username}?start={message.from_user.id}"
+    me = await bot.get_me()
+    link = f"https://t.me/{me.username}?start={message.from_user.id}"
     await message.answer(f"Sizning referal linkingiz:\n{link}")
 
 # ================= TOP UP =================
@@ -196,22 +223,31 @@ async def topup_start(message: types.Message, state: FSMContext):
 
 @dp.message(TopUpState.waiting_amount)
 async def topup_process(message: types.Message, state: FSMContext):
+    if not message.text.isdigit():
+        await message.answer("Faqat raqam kiriting!")
+        return
+
     amount = int(message.text)
+
     await bot.send_message(
         ADMIN_ID,
         f"Foydalanuvchi: {message.from_user.id}\nSumma: {amount}",
         reply_markup=admin_keyboard(message.from_user.id, amount)
     )
+
     await message.answer("So‘rov yuborildi. Admin tasdiqlashini kuting.")
     await state.clear()
 
-# ================= ADMIN APPROVE =================
+# ================= ADMIN =================
 
 @dp.callback_query(F.data.startswith("approve_"))
 async def approve(callback: types.CallbackQuery):
     _, user_id, amount = callback.data.split("_")
     await update_balance(int(user_id), int(amount))
-    await bot.send_message(int(user_id), f"{amount} so'm balansingizga qo‘shildi!")
+    await bot.send_message(
+        int(user_id),
+        f"{amount} so'm balansingizga qo‘shildi!"
+    )
     await callback.message.edit_text("Tasdiqlandi!")
 
 @dp.callback_query(F.data == "cancel")
