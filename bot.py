@@ -3,20 +3,28 @@ import sqlite3
 import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
-    Message, ReplyKeyboardMarkup, KeyboardButton
+    Message,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    CallbackQuery
 )
 from aiogram.filters import CommandStart
 from aiogram.enums import ParseMode
 
 TOKEN = "8390342230:AAFIAyiSJj6sxsZzePaO-srY2qy8vBC7bCU"
-ADMIN_ID = 8537782289   # admin id
-API_URL = "https://saleseen.uz/api/v2"  # API link
+ADMIN_ID = 8537782289
+
+# API sozlamalari (umumiy service API uchun)
+API_URL = "https://saleseen.uz/api/v2"
 API_KEY = "aee8149aa4fe37368499c64f63193153"
 
 bot = Bot(TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
 
 # ================= DATABASE =================
+
 db = sqlite3.connect("smm.db")
 cursor = db.cursor()
 
@@ -27,20 +35,9 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
-    service TEXT,
-    link TEXT,
-    quantity INTEGER,
-    status TEXT
-)
-""")
-
 db.commit()
 
-# ================= MENU =================
+# ================= MAIN MENU =================
 
 def main_menu():
     return ReplyKeyboardMarkup(
@@ -68,11 +65,8 @@ async def start_handler(message: Message):
     text = f"""
 👋 Assalomu alaykum, <b>{message.from_user.first_name}</b>
 
-Ushbu bot orqali siz turli xizmatlardan foydalanishingiz mumkin.
-
 📌 Quyidagi menyudan birini tanlang:
 """
-
     await message.answer(text, reply_markup=main_menu())
 
 # ================= BALANCE =================
@@ -82,61 +76,84 @@ async def balance_handler(message: Message):
     cursor.execute("SELECT balance FROM users WHERE user_id=?", (message.from_user.id,))
     balance = cursor.fetchone()[0]
 
-    await message.answer(f"💰 Sizning balansingiz: <b>{balance} so'm</b>")
+    await message.answer(f"💰 Balans: <b>{balance} so'm</b>")
 
-# ================= TOP UP =================
+# ================= SERVICES MENU =================
 
-@dp.message(F.text == "💳 Hisob To'ldirish")
-async def topup_handler(message: Message):
-    await message.answer("To'lov uchun admin bilan bog'laning.")
-
-# ================= SERVICES =================
+def services_menu():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔵 Telegram", callback_data="platform_telegram"),
+            InlineKeyboardButton(text="🟣 Instagram", callback_data="platform_instagram")
+        ],
+        [
+            InlineKeyboardButton(text="⚫ TikTok", callback_data="platform_tiktok"),
+            InlineKeyboardButton(text="🔴 YouTube", callback_data="platform_youtube")
+        ],
+        [
+            InlineKeyboardButton(text="📦 Barcha xizmatlar", callback_data="platform_all")
+        ]
+    ])
 
 @dp.message(F.text == "🛍 Xizmatlar")
 async def services_handler(message: Message):
     text = """
-📌 Mavjud xizmatlar:
+✅ <b>Xizmatlarimizni tanlaganingizdan xursandmiz!</b>
 
-1️⃣ Telegram obuna
-2️⃣ Instagram like
-3️⃣ TikTok ko'rish
-4️⃣ YouTube view
-
-Xizmat raqamini yuboring:
+👇 Ijtimoiy tarmoqlardan birini tanlang:
 """
-    await message.answer(text)
+    await message.answer(text, reply_markup=services_menu())
 
-# ================= ORDER CREATE =================
+# ================= API DAN XIZMAT OLISH =================
 
-@dp.message(F.text.in_(["1", "2", "3", "4"]))
-async def service_select(message: Message):
-    service_map = {
-        "1": "Telegram obuna",
-        "2": "Instagram like",
-        "3": "TikTok view",
-        "4": "YouTube view"
-    }
+async def get_services():
+    async with aiohttp.ClientSession() as session:
+        async with session.post(API_URL, data={
+            "key": API_KEY,
+            "action": "services"
+        }) as response:
+            return await response.json()
 
-    service = service_map[message.text]
+# ================= PLATFORMA TANLANGANDA =================
 
-    cursor.execute("""
-    INSERT INTO orders (user_id, service, link, quantity, status)
-    VALUES (?, ?, ?, ?, ?)
-    """, (message.from_user.id, service, "kutilmoqda", 0, "pending"))
+@dp.callback_query(F.data.startswith("platform_"))
+async def show_platform_services(callback: CallbackQuery):
+    platform = callback.data.split("_")[1]
 
-    db.commit()
+    try:
+        services = await get_services()
+    except:
+        await callback.message.edit_text("❌ API bilan bog'lanib bo'lmadi.")
+        return
 
-    await message.answer("🔗 Endi link yuboring:")
+    text = ""
 
-# ================= SUPPORT =================
+    count = 0
+    for service in services:
 
-@dp.message(F.text == "📞 Murojaat")
-async def support_handler(message: Message):
-    await message.answer("Admin: @admin_username")
+        name = service.get("name", "").lower()
 
-# ================= ADMIN PANEL =================
+        if platform == "all" or platform in name:
+            text += (
+                f"🆔 <b>ID:</b> {service.get('service')}\n"
+                f"📌 <b>Nomi:</b> {service.get('name')}\n"
+                f"💵 <b>Narx:</b> {service.get('rate')} / 1000\n"
+                f"📊 <b>Min:</b> {service.get('min')} | "
+                f"<b>Max:</b> {service.get('max')}\n\n"
+            )
+            count += 1
 
-@dp.message(F.text.startswith("/admin"))
+        if count >= 15:
+            break
+
+    if text == "":
+        text = "❌ Xizmat topilmadi."
+
+    await callback.message.edit_text(text)
+
+# ================= ADMIN =================
+
+@dp.message(F.text == "/admin")
 async def admin_panel(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
@@ -144,15 +161,7 @@ async def admin_panel(message: Message):
     cursor.execute("SELECT COUNT(*) FROM users")
     users = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM orders")
-    orders = cursor.fetchone()[0]
-
-    await message.answer(f"""
-👑 ADMIN PANEL
-
-👥 Foydalanuvchilar: {users}
-🛒 Buyurtmalar: {orders}
-""")
+    await message.answer(f"👑 Admin Panel\n\n👥 Foydalanuvchilar: {users}")
 
 # ================= RUN =================
 
