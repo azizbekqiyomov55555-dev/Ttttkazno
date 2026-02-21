@@ -491,4 +491,4 @@ def process_quantity(message, service_code, service_name, price_per_unit, link):
         # bot.send_message(user_id, f"⚙️ #{order_id} - buyurtma ishga tushdi.")
         time.sleep(90)  # 1.5 daqiqa
         update_order_status(order_id, 'completed')
-        bot.send_message(user_id, 
+        bot.send_message(user_id, "Salom")
