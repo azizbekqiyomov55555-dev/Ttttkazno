@@ -12,8 +12,8 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.dispatcher import FSMContext
 
-API_TOKEN = os.getenv("OBMEN_BOT_TOKEN", "8354205597:AAEcrLWyev71QVuYA-fVbIzsfxXEm8Wch7g")
-ADMIN_ID = int(os.getenv("OBMEN_ADMIN_ID", "7973934849"))
+API_TOKEN = os.getenv("OBMEN_BOT_TOKEN", "8001146442:AAGeXOi1GL3cdjZuU377liHRf7mHW9knv2I")
+ADMIN_ID = int(os.getenv("OBMEN_ADMIN_ID", "8537782289"))
 CHANNEL_USERNAME = "@tlovchek"
 DATA_DIR = "bot_data"
 CURRENCIES_FILE = os.path.join(DATA_DIR, "currencies.json")
