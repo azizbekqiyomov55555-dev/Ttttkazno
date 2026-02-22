@@ -16,10 +16,10 @@ API_KEY = "aee8149aa4fe37368499c64f63193153"
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# ===== DATABASE (oddiy dict) =====
+# ======== DATABASE (temporary memory) ========
 services = {}  # {category: {service_name: {id, price, min, max}}}
 
-# ===== STATES =====
+# ======== STATES ========
 class AddService(StatesGroup):
     category = State()
     name = State()
@@ -31,14 +31,14 @@ class OrderService(StatesGroup):
     quantity = State()
     link = State()
 
-# ===== USER MENU =====
-user_keyboard = ReplyKeyboardMarkup(
+# ======== USER MENU ========
+user_menu = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text="🛍 Xizmatlar")]],
     resize_keyboard=True
 )
 
-# ===== ADMIN MENU =====
-admin_keyboard = ReplyKeyboardMarkup(
+# ======== ADMIN MENU ========
+admin_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="➕ Xizmat qo‘shish")],
         [KeyboardButton(text="⬅ Ortga")]
@@ -46,21 +46,27 @@ admin_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ===== START =====
+# ======== START ========
 @dp.message(Command("start"))
 async def start(message: types.Message):
-    await message.answer("Assalomu alaykum 👋", reply_markup=user_keyboard)
+    await message.answer("Assalomu alaykum 👋", reply_markup=user_menu)
 
-# ===== ADMIN =====
+# ======== ADMIN PANEL ========
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message):
     if message.from_user.id == ADMIN_ID:
-        await message.answer("Admin panel 👑", reply_markup=admin_keyboard)
+        await message.answer("Admin panel 👑", reply_markup=admin_menu)
     else:
-        await message.answer("Siz admin emassiz ❌")
+        await message.answer("❌ Siz admin emassiz")
+
+@dp.message(lambda m: m.text == "⬅ Ortga")
+async def back_menu(message: types.Message):
+    await message.answer("Asosiy menyu", reply_markup=user_menu)
 
 @dp.message(lambda m: m.text == "➕ Xizmat qo‘shish")
 async def add_category(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
     await message.answer("Kategoriya nomini kiriting (Telegram / Instagram / YouTube / TikTok):")
     await state.set_state(AddService.category)
 
@@ -105,7 +111,7 @@ async def save_service(message: types.Message, state: FSMContext):
 
     services[category][name] = {
         "id": service_id,
-        "price": found["rate"],
+        "price": float(found["rate"]),
         "min": int(found["min"]),
         "max": int(found["max"])
     }
@@ -113,7 +119,7 @@ async def save_service(message: types.Message, state: FSMContext):
     await message.answer(f"✅ {name} qo‘shildi")
     await state.clear()
 
-# ===== USER ORDER =====
+# ======== USER SIDE ========
 @dp.message(lambda m: m.text == "🛍 Xizmatlar")
 async def show_categories(message: types.Message):
     if not services:
@@ -125,10 +131,14 @@ async def show_categories(message: types.Message):
         resize_keyboard=True
     )
     await message.answer("Kategoriya tanlang:", reply_markup=keyboard)
+    await dp.storage.set_state(message.from_user.id, OrderService.category)
 
 @dp.message()
-async def handle_user(message: types.Message, state: FSMContext):
+async def user_flow(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
     text = message.text
+
+    data = await state.get_data()
 
     # CATEGORY
     if text in services:
@@ -142,11 +152,8 @@ async def handle_user(message: types.Message, state: FSMContext):
         return
 
     # SERVICE
-    current = await state.get_state()
-    if current == OrderService.service.state:
-        data = await state.get_data()
+    if current_state == OrderService.service.state:
         category = data["category"]
-
         if text in services[category]:
             await state.update_data(service=text)
             await message.answer("Miqdorni kiriting:")
@@ -154,16 +161,19 @@ async def handle_user(message: types.Message, state: FSMContext):
             return
 
     # QUANTITY
-    if current == OrderService.quantity.state:
-        qty = int(text)
+    if current_state == OrderService.quantity.state:
+        try:
+            qty = int(text)
+        except:
+            await message.answer("Faqat raqam kiriting")
+            return
         await state.update_data(quantity=qty)
         await message.answer("Linkni kiriting:")
         await state.set_state(OrderService.link)
         return
 
     # LINK
-    if current == OrderService.link.state:
-        data = await state.get_data()
+    if current_state == OrderService.link.state:
         category = data["category"]
         service_name = data["service"]
         qty = data["quantity"]
@@ -189,8 +199,15 @@ async def handle_user(message: types.Message, state: FSMContext):
                 result = await response.json()
 
         if "order" in result:
-            await message.answer(f"✅ Buyurtma yuborildi\nID: {result['order']}")
+            await message.answer(f"✅ Buyurtma yuborildi!\nOrder ID: {result['order']}")
         else:
             await message.answer("❌ Buyurtma xatosi")
 
         await state.clear()
+
+# ======== MAIN ========
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
