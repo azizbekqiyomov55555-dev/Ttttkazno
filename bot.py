@@ -1,7 +1,7 @@
 import asyncio
 import aiohttp
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -16,26 +16,22 @@ API_KEY = "aee8149aa4fe37368499c64f63193153"
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# ================== DATABASE ==================
-services = {}  
-# {category: {service_name: {id,min,max}}}
+# ================= DATABASE =================
+services = {}  # {category: {service_name: {id, min, max}}}
 
-# ================== STATES ==================
-class AddCategory(StatesGroup):
-    name = State()
-
+# ================= STATES =================
 class AddService(StatesGroup):
     category = State()
     name = State()
     service_id = State()
 
-class OrderState(StatesGroup):
+class OrderService(StatesGroup):
     category = State()
     service = State()
     quantity = State()
     link = State()
 
-# ================== USER MENU ==================
+# ================= USER MENU =================
 user_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🛍 Xizmatlar"), KeyboardButton(text="📱 Nomer olish")],
@@ -46,22 +42,21 @@ user_menu = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ================== ADMIN MENU ==================
+# ================= ADMIN MENU =================
 admin_menu = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="➕ Kategoriya qo‘shish")],
         [KeyboardButton(text="➕ Xizmat qo‘shish")],
         [KeyboardButton(text="⬅ Ortga")]
     ],
     resize_keyboard=True
 )
 
-# ================== START ==================
+# ================= START =================
 @dp.message(Command("start"))
 async def start(message: types.Message):
     await message.answer("Assalomu alaykum 👋", reply_markup=user_menu)
 
-# ================== ADMIN PANEL ==================
+# ================= ADMIN =================
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message):
     if message.from_user.id == ADMIN_ID:
@@ -69,41 +64,20 @@ async def admin_panel(message: types.Message):
     else:
         await message.answer("❌ Siz admin emassiz")
 
-# ====== KATEGORIYA QO‘SHISH ======
-@dp.message(lambda m: m.text == "➕ Kategoriya qo‘shish")
-async def add_category_start(message: types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
-        return
-    await message.answer("Kategoriya nomini kiriting (masalan: 🔵 Telegram)")
-    await state.set_state(AddCategory.name)
-
-@dp.message(AddCategory.name)
-async def save_category(message: types.Message, state: FSMContext):
-    services[message.text] = {}
-    await message.answer(f"✅ {message.text} qo‘shildi")
+@dp.message(lambda m: m.text == "⬅ Ortga")
+async def back_menu(message: types.Message, state: FSMContext):
     await state.clear()
+    await message.answer("Asosiy menyu", reply_markup=user_menu)
 
-# ====== XIZMAT QO‘SHISH ======
 @dp.message(lambda m: m.text == "➕ Xizmat qo‘shish")
-async def add_service_start(message: types.Message, state: FSMContext):
+async def add_category(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
-
-    if not services:
-        await message.answer("Avval kategoriya qo‘shing")
-        return
-
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=cat)] for cat in services] + [[KeyboardButton(text="⬅ Ortga")]],
-        resize_keyboard=True
-    )
-    await message.answer("Kategoriya tanlang:", reply_markup=keyboard)
+    await message.answer("Kategoriya nomini kiriting (Telegram / Instagram / YouTube / TikTok):")
     await state.set_state(AddService.category)
 
 @dp.message(AddService.category)
-async def add_service_name(message: types.Message, state: FSMContext):
-    if message.text not in services:
-        return
+async def add_name(message: types.Message, state: FSMContext):
     await state.update_data(category=message.text)
     await message.answer("Xizmat nomini kiriting:")
     await state.set_state(AddService.name)
@@ -138,6 +112,9 @@ async def save_service(message: types.Message, state: FSMContext):
         await state.clear()
         return
 
+    if category not in services:
+        services[category] = {}
+
     services[category][name] = {
         "id": service_id,
         "min": int(found["min"]),
@@ -147,93 +124,99 @@ async def save_service(message: types.Message, state: FSMContext):
     await message.answer(f"✅ {name} qo‘shildi")
     await state.clear()
 
-# ================== USER XIZMATLAR ==================
+# ================= USER XIZMATLAR =================
 @dp.message(lambda m: m.text == "🛍 Xizmatlar")
-async def show_categories(message: types.Message):
+async def show_categories(message: types.Message, state: FSMContext):
     if not services:
         await message.answer("Hozircha xizmat yo‘q")
         return
 
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=cat)] for cat in services] + [[KeyboardButton(text="⬅ Ortga")]],
-        resize_keyboard=True
+    buttons = []
+    row = []
+    for i, cat in enumerate(services.keys(), start=1):
+        row.append(InlineKeyboardButton(text=cat, callback_data=f"cat_{cat}"))
+        if i % 2 == 0:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    await message.answer(
+        "✅ Xizmatlarimizni tanlaganingizdan xursandmiz!\n\n👇 Ijtimoiy tarmoqni tanlang:",
+        reply_markup=keyboard
     )
-    await message.answer("Ijtimoiy tarmoqni tanlang 👇", reply_markup=keyboard)
+    await state.set_state(OrderService.category)
 
-# ====== USER ORDER FLOW ======
-@dp.message()
-async def order_flow(message: types.Message, state: FSMContext):
-    text = message.text
-    current_state = await state.get_state()
+# ================= CALLBACKS =================
+@dp.callback_query(lambda c: c.data.startswith("cat_"))
+async def open_category(callback: types.CallbackQuery, state: FSMContext):
+    category = callback.data.replace("cat_", "")
+    await state.update_data(category=category)
+
+    buttons = []
+    for service in services[category]:
+        buttons.append([InlineKeyboardButton(text=service, callback_data=f"service_{service}")])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.edit_text("Xizmatni tanlang:", reply_markup=keyboard)
+
+@dp.callback_query(lambda c: c.data.startswith("service_"))
+async def select_service(callback: types.CallbackQuery, state: FSMContext):
+    service_name = callback.data.replace("service_", "")
+    await state.update_data(service=service_name)
+
+    await callback.message.answer("Miqdorni kiriting:")
+    await state.set_state(OrderService.quantity)
+
+@dp.message(OrderService.quantity)
+async def enter_quantity(message: types.Message, state: FSMContext):
+    try:
+        qty = int(message.text)
+    except:
+        await message.answer("❌ Faqat raqam kiriting")
+        return
+
+    await state.update_data(quantity=qty)
+    await message.answer("Linkni kiriting:")
+    await state.set_state(OrderService.link)
+
+@dp.message(OrderService.link)
+async def enter_link(message: types.Message, state: FSMContext):
     data = await state.get_data()
+    category = data["category"]
+    service_name = data["service"]
+    qty = data["quantity"]
+    link = message.text
 
-    # Kategoriya tanlash
-    if text in services:
-        await state.update_data(category=text)
-        keyboard = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text=s)] for s in services[text]] + [[KeyboardButton(text="⬅ Ortga")]],
-            resize_keyboard=True
-        )
-        await message.answer("Xizmatni tanlang:", reply_markup=keyboard)
-        await state.set_state(OrderState.service)
-        return
+    service = services[category][service_name]
 
-    # Xizmat tanlash
-    if current_state == OrderState.service.state:
-        category = data["category"]
-        if text in services[category]:
-            await state.update_data(service=text)
-            await message.answer("Miqdorni kiriting:")
-            await state.set_state(OrderState.quantity)
-            return
-
-    # Miqdor
-    if current_state == OrderState.quantity.state:
-        try:
-            qty = int(text)
-        except:
-            await message.answer("Faqat raqam kiriting")
-            return
-
-        await state.update_data(quantity=qty)
-        await message.answer("Link kiriting:")
-        await state.set_state(OrderState.link)
-        return
-
-    # Link
-    if current_state == OrderState.link.state:
-        category = data["category"]
-        service_name = data["service"]
-        qty = data["quantity"]
-        link = text
-
-        service = services[category][service_name]
-
-        if qty < service["min"] or qty > service["max"]:
-            await message.answer("❌ Miqdor limitdan tashqarida")
-            await state.clear()
-            return
-
-        payload = {
-            "key": API_KEY,
-            "action": "add",
-            "service": service["id"],
-            "link": link,
-            "quantity": qty
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(API_URL, data=payload) as response:
-                result = await response.json()
-
-        if "order" in result:
-            await message.answer(f"✅ Buyurtma yuborildi!\nOrder ID: {result['order']}")
-        else:
-            await message.answer("❌ Xatolik")
-
+    if qty < service["min"] or qty > service["max"]:
+        await message.answer("❌ Miqdor limitdan tashqarida")
         await state.clear()
+        return
 
-# ================== QOLGAN TUGMALAR ==================
+    payload = {
+        "key": API_KEY,
+        "action": "add",
+        "service": service["id"],
+        "link": link,
+        "quantity": qty
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(API_URL, data=payload) as response:
+            result = await response.json()
+
+    if "order" in result:
+        await message.answer(f"✅ Buyurtma yuborildi!\nOrder ID: {result['order']}")
+    else:
+        await message.answer("❌ Buyurtma xatosi")
+
+    await state.clear()
+
+# ================= QOLGAN TUGMALAR =================
 @dp.message(lambda m: m.text == "📱 Nomer olish")
 async def nomer(message: types.Message):
     await message.answer("Nomer olish bo‘limi")
@@ -262,7 +245,7 @@ async def murojaat(message: types.Message):
 async def support(message: types.Message):
     await message.answer("Qo‘llab-quvvatlash xizmati")
 
-# ================== MAIN ==================
+# ================= MAIN =================
 async def main():
     await dp.start_polling(bot)
 
