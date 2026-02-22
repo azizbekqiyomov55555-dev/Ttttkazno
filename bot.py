@@ -26,7 +26,7 @@ API_KEY = os.getenv("API_KEY")
 if not TOKEN:
     raise RuntimeError("BOT_TOKEN qo‘yilmagan!")
 
-# ================= DB =================
+# ================= DATABASE =================
 conn = sqlite3.connect("database.db")
 cur = conn.cursor()
 
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS orders(
 
 conn.commit()
 
-# ================= BOT INIT =================
+# ================= BOT =================
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -77,9 +77,8 @@ user_kb = ReplyKeyboardMarkup(
 
 admin_kb = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="➕ Xizmat qo‘shish")],
-        [KeyboardButton(text="💹 Foiz qo‘shish")],
-        [KeyboardButton(text="➕ Balans qo‘shish")],
+        [KeyboardButton(text="➕ Xizmat qo‘shish"), KeyboardButton(text="❌ Xizmat o‘chirish")],
+        [KeyboardButton(text="💹 Foiz qo‘shish"), KeyboardButton(text="➕ Balans qo‘shish")],
         [KeyboardButton(text="⬅ Ortga")]
     ],
     resize_keyboard=True
@@ -99,7 +98,7 @@ class AddBalance(StatesGroup):
     user_id = State()
     amount = State()
 
-class Order(StatesGroup):
+class OrderState(StatesGroup):
     service_id = State()
     quantity = State()
 
@@ -158,6 +157,29 @@ async def add_service_price(message: Message, state: FSMContext):
     await message.answer("✅ Xizmat qo‘shildi")
     await state.clear()
 
+# ================= DELETE SERVICE =================
+@dp.message(F.text == "❌ Xizmat o‘chirish")
+async def delete_service(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    cur.execute("SELECT id, name FROM services")
+    rows = cur.fetchall()
+    if not rows:
+        return await message.answer("Xizmat yo‘q")
+
+    kb = []
+    for r in rows:
+        kb.append([InlineKeyboardButton(text=r[1], callback_data=f"del_{r[0]}")])
+    await message.answer("Tanlang:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+
+@dp.callback_query(F.data.startswith("del_"))
+async def delete_service_cb(callback):
+    sid = int(callback.data.split("_")[1])
+    cur.execute("DELETE FROM services WHERE id=?", (sid,))
+    conn.commit()
+    await callback.message.edit_text("O‘chirildi")
+    await callback.answer()
+
 # ================= SHOW SERVICES =================
 @dp.message(F.text == "🛍 Xizmatlar")
 async def show_services(message: Message):
@@ -165,6 +187,7 @@ async def show_services(message: Message):
     rows = cur.fetchall()
     if not rows:
         return await message.answer("Xizmat yo‘q")
+
     kb = []
     for r in rows:
         final_price = r[2] * (1 + r[3]/100)
@@ -172,17 +195,19 @@ async def show_services(message: Message):
             text=f"{r[1]} - {final_price}",
             callback_data=f"buy_{r[0]}"
         )])
+
     await message.answer("Tanlang:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
+# ================= BUY =================
 @dp.callback_query(F.data.startswith("buy_"))
 async def buy_service(callback, state: FSMContext):
     sid = int(callback.data.split("_")[1])
     await state.update_data(service_id=sid)
     await callback.message.answer("Miqdor kiriting:")
-    await state.set_state(Order.quantity)
+    await state.set_state(OrderState.quantity)
     await callback.answer()
 
-@dp.message(Order.quantity)
+@dp.message(OrderState.quantity)
 async def order_quantity(message: Message, state: FSMContext):
     qty = int(message.text)
     data = await state.get_data()
@@ -190,6 +215,7 @@ async def order_quantity(message: Message, state: FSMContext):
 
     cur.execute("SELECT price, percent, api_id FROM services WHERE id=?", (sid,))
     row = cur.fetchone()
+
     price = row[0] * (1 + row[1]/100)
     total = price * qty
 
@@ -201,7 +227,6 @@ async def order_quantity(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    # API order
     async with aiohttp.ClientSession() as session:
         async with session.post(API_URL, data={
             "key": API_KEY,
@@ -234,6 +259,7 @@ async def my_orders(message: Message):
     rows = cur.fetchall()
     if not rows:
         return await message.answer("Buyurtma yo‘q")
+
     text = ""
     for r in rows:
         text += f"Order: {r[0]} | {r[1]} | {r[2]}\n"
