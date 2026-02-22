@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import sqlite3
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -29,12 +28,10 @@ API_URL = os.getenv("API_URL", "https://saleseen.uz/api/v2")
 API_KEY = os.getenv("API_KEY", "API_KEYINGIZ")
 
 DB_PATH = os.getenv("DB_PATH", "db.sqlite")
-
-ORDER_STATUS_POLL_SECONDS = int(os.getenv("ORDER_STATUS_POLL_SECONDS", "90"))  # 60-180 yaxshi
+ORDER_STATUS_POLL_SECONDS = int(os.getenv("ORDER_STATUS_POLL_SECONDS", "90"))
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("bot")
-
 
 # =========================
 # DB LAYER (sqlite3 + asyncio.to_thread)
@@ -107,7 +104,7 @@ class DB:
             link TEXT NOT NULL,
             unit_price REAL NOT NULL,
             total REAL NOT NULL,
-            status TEXT NOT NULL,              -- created/sent/processing/completed/canceled/partial/error
+            status TEXT NOT NULL,              -- sent/processing/completed/canceled/partial/error
             created_at TEXT NOT NULL
         )
         """)
@@ -147,9 +144,7 @@ class DB:
         conn.close()
         return rows
 
-
 db = DB(DB_PATH)
-
 
 # =========================
 # HELPERS
@@ -157,14 +152,10 @@ db = DB(DB_PATH)
 def now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-
 def cb(*parts: str) -> str:
-    # callback_data max ~64 bytes, shuning uchun qisqa
     return "|".join(parts)[:64]
 
-
 def money(x: float) -> str:
-    # 12345.0 -> 12 345
     try:
         v = float(x)
     except:
@@ -173,10 +164,8 @@ def money(x: float) -> str:
         return f"{int(v):,}".replace(",", " ")
     return f"{v:,.2f}".replace(",", " ")
 
-
 def is_admin(user_id: int) -> bool:
     return user_id == ADMIN_ID
-
 
 # =========================
 # API CLIENT
@@ -190,7 +179,6 @@ class PanelAPI:
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(self.url, data=payload) as resp:
-                # ba’zi panellar text qaytaradi; json bo‘lmasa ham ushlab qolamiz
                 ct = resp.headers.get("Content-Type", "")
                 if "application/json" in ct:
                     return await resp.json()
@@ -216,9 +204,7 @@ class PanelAPI:
     async def status(self, api_order_id: str) -> Any:
         return await self._post({"key": self.key, "action": "status", "order": api_order_id})
 
-
 api = PanelAPI(API_URL, API_KEY)
-
 
 # =========================
 # FSM STATES
@@ -237,6 +223,10 @@ class AdminAddCard(StatesGroup):
     name = State()
     number = State()
 
+class AdminAddBalance(StatesGroup):
+    user_id = State()
+    amount = State()
+
 class UserOrder(StatesGroup):
     service_id = State()
     quantity = State()
@@ -245,7 +235,6 @@ class UserOrder(StatesGroup):
 class UserTopup(StatesGroup):
     amount = State()
     receipt = State()
-
 
 # =========================
 # MENUS
@@ -271,13 +260,11 @@ def kb_admin() -> ReplyKeyboardMarkup:
         resize_keyboard=True
     )
 
-
 # =========================
 # BOT INIT
 # =========================
 bot = Bot(token=TOKEN, parse_mode="HTML")
 dp = Dispatcher(storage=MemoryStorage())
-
 
 # =========================
 # START / ADMIN
@@ -309,26 +296,31 @@ async def back_to_user(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Asosiy menyu", reply_markup=kb_user())
 
-
 # =========================
-# USER: BALANCE / REFERAL
+# USER: BALANCE / REFERAL / HELP
 # =========================
 @dp.message(F.text == "💰 Hisobim")
 async def my_balance(message: types.Message):
     row = await db.fetchone("SELECT balance FROM users WHERE user_id=?", (message.from_user.id,))
-    bal = row["balance"] if row else 0
+    bal = float(row["balance"]) if row else 0.0
     await message.answer(f"💰 Balansingiz: <b>{money(bal)}</b> so‘m")
 
 @dp.message(F.text == "👥 Referal")
 async def referal(message: types.Message):
     me = await bot.get_me()
     link = f"https://t.me/{me.username}?start={message.from_user.id}"
-    await message.answer(f"👥 Referal link:\n<code>{link}</code>\n\nDo‘stlaringiz shu link orqali kirsa, keyin bonus berish funksiyasini ham qo‘shib beramiz.")
+    await message.answer(f"👥 Referal link:\n<code>{link}</code>")
 
 @dp.message(F.text == "☎ Yordam")
 async def help_msg(message: types.Message):
-    await message.answer("☎ Yordam:\n- Xizmatlar: 🛍 Xizmatlar\n- Balans: 💰 Hisobim\n- To‘ldirish: 💳 Hisob to‘ldirish\n- Buyurtmalar: 🛒 Buyurtmalarim\n\nAdmin: /admin")
-
+    await message.answer(
+        "☎ Yordam:\n"
+        "🛍 Xizmatlar — xizmat tanlash\n"
+        "💰 Hisobim — balans\n"
+        "💳 Hisob to‘ldirish — chek yuborish\n"
+        "🛒 Buyurtmalarim — buyurtmalar\n\n"
+        "Admin: /admin"
+    )
 
 # =========================
 # ADMIN: CARD ADD
@@ -337,7 +329,7 @@ async def help_msg(message: types.Message):
 async def admin_add_card(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
-    await message.answer("Karta nomi (masalan: HUMO / UZCARD):")
+    await message.answer("Karta nomi (HUMO/UZCARD):")
     await state.set_state(AdminAddCard.name)
 
 @dp.message(AdminAddCard.name)
@@ -358,9 +350,8 @@ async def admin_add_card_3(message: types.Message, state: FSMContext):
         await message.answer(f"❌ Xatolik: {e}")
     await state.clear()
 
-
 # =========================
-# ADMIN: SERVICE ADD (API id tekshiradi)
+# ADMIN: SERVICE ADD
 # =========================
 @dp.message(F.text == "➕ Xizmat qo‘shish")
 async def admin_add_service(message: types.Message, state: FSMContext):
@@ -378,14 +369,13 @@ async def admin_add_service_2(message: types.Message, state: FSMContext):
 @dp.message(AdminAddService.name)
 async def admin_add_service_3(message: types.Message, state: FSMContext):
     await state.update_data(name=message.text.strip())
-    await message.answer("API Service ID (paneldagi service id):")
+    await message.answer("API Service ID:")
     await state.set_state(AdminAddService.api_id)
 
 @dp.message(AdminAddService.api_id)
 async def admin_add_service_4(message: types.Message, state: FSMContext):
     api_id = message.text.strip()
-
-    # paneldan tekshiramiz (to‘g‘ri idmi)
+    # paneldan tekshirish (ixtiyoriy)
     try:
         all_services = await api.services()
         found = None
@@ -398,9 +388,9 @@ async def admin_add_service_4(message: types.Message, state: FSMContext):
             await message.answer("❌ Panelda bunday Service ID topilmadi. Qaytadan kiriting:")
             return
     except Exception as e:
-        await message.answer(f"❌ Panel services olishda xato: {e}\nBaribir davom etamiz.")
-    await state.update_data(api_id=api_id)
+        await message.answer(f"⚠️ Panel tekshiruvida xato: {e}\nDavom etamiz...")
 
+    await state.update_data(api_id=api_id)
     await message.answer("Bazaviy narx (1 dona uchun):")
     await state.set_state(AdminAddService.base_price)
 
@@ -419,7 +409,6 @@ async def admin_add_service_5(message: types.Message, state: FSMContext):
     await message.answer("✅ Xizmat qo‘shildi.")
     await state.clear()
 
-
 # =========================
 # ADMIN: SERVICE DELETE
 # =========================
@@ -433,8 +422,12 @@ async def admin_delete_service_menu(message: types.Message):
 
     kb = []
     for r in rows[:50]:
-        kb.append([InlineKeyboardButton(text=f"{r['category']} • {r['name']}", callback_data=cb("svc_del", str(r["id"])))])
-    await message.answer("O‘chirmoqchi bo‘lgan xizmatni tanlang:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+        kb.append([InlineKeyboardButton(
+            text=f"{r['category']} • {r['name']}",
+            callback_data=cb("svc_del", str(r["id"]))
+        )])
+    await message.answer("O‘chirmoqchi bo‘lgan xizmatni tanlang:",
+                         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 @dp.callback_query(F.data.startswith("svc_del|"))
 async def admin_delete_service(callback: types.CallbackQuery):
@@ -445,27 +438,25 @@ async def admin_delete_service(callback: types.CallbackQuery):
     await callback.message.edit_text("✅ O‘chirildi.")
     await callback.answer()
 
-
 # =========================
 # ADMIN: PERCENT
 # =========================
 @dp.message(F.text == "💹 Foiz qo‘shish")
-async def admin_percent_menu(message: types.Message, state: FSMContext):
+async def admin_percent_menu(message: types.Message):
     if not is_admin(message.from_user.id):
         return
-    rows = await db.fetchall("SELECT id, category, name, base_price, percent FROM services ORDER BY id DESC")
+    rows = await db.fetchall("SELECT id, name, percent FROM services ORDER BY id DESC")
     if not rows:
         return await message.answer("Xizmat yo‘q.")
 
     kb = []
     for r in rows[:50]:
-        kb.append([
-            InlineKeyboardButton(
-                text=f"{r['name']}  ({r['percent']}%)",
-                callback_data=cb("pct_pick", str(r["id"]))
-            )
-        ])
-    await message.answer("Foiz qo‘shiladigan xizmatni tanlang:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+        kb.append([InlineKeyboardButton(
+            text=f"{r['name']} ({r['percent']}%)",
+            callback_data=cb("pct_pick", str(r["id"]))
+        )])
+    await message.answer("Foiz qo‘shiladigan xizmatni tanlang:",
+                         reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 @dp.callback_query(F.data.startswith("pct_pick|"))
 async def admin_percent_pick(callback: types.CallbackQuery, state: FSMContext):
@@ -488,19 +479,13 @@ async def admin_percent_apply(message: types.Message, state: FSMContext):
 
     data = await state.get_data()
     sid = int(data["service_id"])
-
     await db.execute("UPDATE services SET percent=? WHERE id=?", (pct, sid))
     await message.answer("✅ Foiz saqlandi.")
     await state.clear()
 
-
 # =========================
-# ADMIN: ADD BALANCE (manual)
+# ADMIN: ADD BALANCE
 # =========================
-class AdminAddBalance(StatesGroup):
-    user_id = State()
-    amount = State()
-
 @dp.message(F.text == "➕ Balans qo‘shish")
 async def admin_add_balance_start(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id):
@@ -527,7 +512,6 @@ async def admin_add_balance_3(message: types.Message, state: FSMContext):
     except:
         return await message.answer("❌ Raqam kiriting.")
 
-    # user borligini tekshiramiz
     row = await db.fetchone("SELECT user_id FROM users WHERE user_id=?", (uid,))
     if not row:
         await message.answer("❌ Bunday user topilmadi.")
@@ -542,7 +526,6 @@ async def admin_add_balance_3(message: types.Message, state: FSMContext):
         pass
     await state.clear()
 
-
 # =========================
 # USER: SHOW SERVICES (category)
 # =========================
@@ -551,13 +534,11 @@ async def user_services(message: types.Message):
     rows = await db.fetchall("SELECT DISTINCT category FROM services ORDER BY category")
     if not rows:
         return await message.answer("❌ Hali xizmatlar yo‘q.")
-    kb = []
-    for r in rows:
-        kb.append([InlineKeyboardButton(text=r["category"], callback_data=cb("cat", r["category"]))])
+    kb = [[InlineKeyboardButton(text=r["category"], callback_data=cb("cat", r["category"]))] for r in rows]
     await message.answer("Kategoriya tanlang:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
 
 @dp.callback_query(F.data.startswith("cat|"))
-async def user_services_by_cat(callback: types.CallbackQuery, state: FSMContext):
+async def user_services_by_cat(callback: types.CallbackQuery):
     _, category = callback.data.split("|", 1)
     rows = await db.fetchall(
         "SELECT id, name, base_price, percent FROM services WHERE category=? ORDER BY id DESC",
@@ -578,11 +559,22 @@ async def user_services_by_cat(callback: types.CallbackQuery, state: FSMContext)
     await callback.message.edit_text("Xizmat tanlang:", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
     await callback.answer()
 
-
 # =========================
 # USER: ORDER FLOW
 # =========================
 @dp.callback_query(F.data.startswith("ord_pick|"))
 async def user_order_pick(callback: types.CallbackQuery, state: FSMContext):
     _, sid = callback.data.split("|", 1)
-    await state.update_data(service_id
+    await state.update_data(service_id=int(sid))
+    await callback.message.answer("Miqdor kiriting (quantity):")
+    await state.set_state(UserOrder.quantity)
+    await callback.answer()
+
+@dp.message(UserOrder.quantity)
+async def user_order_qty(message: types.Message, state: FSMContext):
+    try:
+        qty = int(message.text.strip())
+        if qty <= 0:
+            raise ValueError()
+    except:
+        return await messag
