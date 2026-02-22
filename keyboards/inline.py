@@ -4,7 +4,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 def main_menu_keyboard():
     builder = ReplyKeyboardBuilder()
     builder.row(KeyboardButton(text="🛍 Xizmatlar"), KeyboardButton(text="📱 Nomer olish"))
-    builder.row(KeyboardButton(text=" Buyurtmalarim"), KeyboardButton(text="💰 Pul ishlash"))
+    builder.row(KeyboardButton(text="🛒 Buyurtmalarim"), KeyboardButton(text="💰 Pul ishlash"))
     builder.row(KeyboardButton(text="💳 Hisobim"), KeyboardButton(text="💵 Hisob To'ldirish"))
     builder.row(KeyboardButton(text="📞 Murojaat"), KeyboardButton(text="🎧 Qo'llab-quvvatlash"))
     builder.row(KeyboardButton(text="🤝 Hamkorlik"))
@@ -21,10 +21,6 @@ def services_keyboard():
         InlineKeyboardButton(text="⚫ TikTok", callback_data="service_tiktok"),
         InlineKeyboardButton(text="🔴 YouTube", callback_data="service_youtube")
     )
-    builder.row(
-        InlineKeyboardButton(text="🔍 Qidirish", callback_data="service_search"),
-        InlineKeyboardButton(text="📋 Barcha xizmatlar", callback_data="service_all")
-    )
     builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="back_main"))
     return builder.as_markup()
 
@@ -36,7 +32,6 @@ def telegram_services_keyboard():
         ("❤️ Reaksiyalar", "tg_reactions"),
         ("💬 Kommentariyalar", "tg_comments"),
         ("🔄 Repostlar", "tg_reposts"),
-        (" Profil tashriflar", "tg_profile_views"),
     ]
     for text, callback in services:
         builder.button(text=text, callback_data=callback)
@@ -91,10 +86,6 @@ def payment_methods_keyboard():
     builder.row(
         InlineKeyboardButton(text="💳 Click/Payme", callback_data="pay_click"),
         InlineKeyboardButton(text="🏦 Karta", callback_data="pay_card")
-    )
-    builder.row(
-        InlineKeyboardButton(text="💵 Naqd", callback_data="pay_cash"),
-        InlineKeyboardButton(text="🔄 Crypto", callback_data="pay_crypto")
     )
     builder.row(InlineKeyboardButton(text="◀️ Orqaga", callback_data="back_main"))
     return builder.as_markup()
