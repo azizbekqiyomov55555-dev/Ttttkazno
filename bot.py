@@ -131,6 +131,7 @@ async def show_categories(message: types.Message, state: FSMContext):
         await message.answer("Hozircha xizmat yo‘q")
         return
 
+    # Inline tugmalar bilan kategoriyalar + qidirish va barcha xizmatlar
     buttons = []
     row = []
     for i, cat in enumerate(services.keys(), start=1):
@@ -140,6 +141,12 @@ async def show_categories(message: types.Message, state: FSMContext):
             row = []
     if row:
         buttons.append(row)
+
+    # Qidirish va barcha xizmatlar tugmalari
+    buttons.append([
+        InlineKeyboardButton(text="🔍 Qidirish", callback_data="search"),
+        InlineKeyboardButton(text="🛒 Barcha xizmatlar", callback_data="all_services")
+    ])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -170,6 +177,20 @@ async def select_service(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("Miqdorni kiriting:")
     await state.set_state(OrderService.quantity)
 
+@dp.callback_query(lambda c: c.data == "search")
+async def search_service(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Qidiriladigan xizmat nomini kiriting:")
+    await state.set_state(OrderService.service)  # Qidirish uchun vaqtinchalik state
+
+@dp.callback_query(lambda c: c.data == "all_services")
+async def all_services(callback: types.CallbackQuery):
+    text = "📋 Barcha xizmatlar:\n\n"
+    for category, cat_services in services.items():
+        text += f"📌 {category}:\n"
+        for name, info in cat_services.items():
+            text += f"   - {name} (ID: {info['id']}, Min: {info['min']}, Max: {info['max']})\n"
+    await callback.message.answer(text)
+
 @dp.message(OrderService.quantity)
 async def enter_quantity(message: types.Message, state: FSMContext):
     try:
@@ -185,9 +206,9 @@ async def enter_quantity(message: types.Message, state: FSMContext):
 @dp.message(OrderService.link)
 async def enter_link(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    category = data["category"]
-    service_name = data["service"]
-    qty = data["quantity"]
+    category = data.get("category")
+    service_name = data.get("service")
+    qty = data.get("quantity")
     link = message.text
 
     service = services[category][service_name]
