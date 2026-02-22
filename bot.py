@@ -8,16 +8,17 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
 TOKEN = "8001146442:AAG5oPF_FmKsDZC-yaHgbNIMl8xU0IrLFzI"
-ADMIN_ID = 8537782289  # O'Z TELEGRAM ID INGIZ
+ADMIN_ID = 8537782289
 
-API_URL = "https://saleseen.uz/api/v2"  # API manzil
+API_URL = "https://saleseen.uz/api/v2"
+API_KEY = "aee8149aa4fe37368499c64f63193153"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 services = {}
 
-# ================= USER TUGMALAR =================
+# ================= USER MENU =================
 
 user_keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -29,7 +30,7 @@ user_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ================= ADMIN TUGMALAR =================
+# ================= ADMIN MENU =================
 
 admin_keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -69,28 +70,42 @@ async def add_service(message: types.Message, state: FSMContext):
         await message.answer("Xizmat ID kiriting:")
         await state.set_state(AddService.waiting_for_id)
 
+# ================= API ORQALI XIZMAT OLISH =================
+
 @dp.message(AddService.waiting_for_id)
 async def get_service_id(message: types.Message, state: FSMContext):
     service_id = message.text
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(API_URL + service_id) as response:
-            if response.status == 200:
-                data = await response.json()
+    payload = {
+        "key": API_KEY,
+        "action": "services"
+    }
 
+    async with aiohttp.ClientSession() as session:
+        async with session.post(API_URL, data=payload) as response:
+            data = await response.json()
+
+            found = None
+            for s in data:
+                if str(s["service"]) == service_id:
+                    found = s
+                    break
+
+            if found:
                 services[service_id] = {
-                    "name": data.get("name"),
-                    "price": data.get("price"),
-                    "desc": data.get("description")
+                    "name": found["name"],
+                    "price": found["rate"],
+                    "min": found["min"],
+                    "max": found["max"]
                 }
 
-                await message.answer(f"✅ {data.get('name')} qo‘shildi")
+                await message.answer(f"✅ {found['name']} qo‘shildi")
             else:
-                await message.answer("❌ API dan ma'lumot topilmadi")
+                await message.answer("❌ Bunday ID topilmadi")
 
     await state.clear()
 
-# ================= USER TUGMALAR JAVOBI =================
+# ================= USER XIZMATLAR =================
 
 @dp.message(lambda m: m.text == "🛍 Xizmatlar")
 async def show_services(message: types.Message):
@@ -100,9 +115,16 @@ async def show_services(message: types.Message):
 
     text = "📋 Xizmatlar:\n\n"
     for sid, s in services.items():
-        text += f"🆔 {sid}\n📌 {s['name']}\n💰 {s['price']}\n\n"
+        text += (
+            f"🆔 {sid}\n"
+            f"📌 {s['name']}\n"
+            f"💰 Narx: {s['price']}\n"
+            f"📊 Min: {s['min']} | Max: {s['max']}\n\n"
+        )
 
     await message.answer(text)
+
+# ================= QOLGAN TUGMALAR =================
 
 @dp.message(lambda m: m.text == "📱 Nomer olish")
 async def nomer(message: types.Message):
