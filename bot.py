@@ -17,7 +17,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 # ================== DATABASE ==================
-services = {}  # {category: {service_name: {id, min, max}}}
+services = {}  # {category: {service_name: {id, min, max, price}}}
 
 # ================== STATES ==================
 class AddService(StatesGroup):
@@ -30,6 +30,11 @@ class OrderService(StatesGroup):
     service = State()
     quantity = State()
     link = State()
+
+class AddPercent(StatesGroup):
+    category = State()
+    service = State()
+    percent = State()
 
 # ================== USER MENU ==================
 user_menu = ReplyKeyboardMarkup(
@@ -46,6 +51,7 @@ user_menu = ReplyKeyboardMarkup(
 admin_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="➕ Xizmat qo‘shish"), KeyboardButton(text="❌ Xizmat o‘chirish")],
+        [KeyboardButton(text="💹 Foiz qo‘shish")],
         [KeyboardButton(text="⬅ Ortga")]
     ],
     resize_keyboard=True
@@ -72,8 +78,6 @@ async def back_menu(message: types.Message, state: FSMContext):
 # ================== ADD SERVICE ==================
 @dp.message(lambda m: m.text == "➕ Xizmat qo‘shish")
 async def add_category(message: types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
-        return
     await message.answer("Kategoriya nomini kiriting (Telegram / Instagram / YouTube / TikTok):")
     await state.set_state(AddService.category)
 
@@ -118,13 +122,14 @@ async def save_service(message: types.Message, state: FSMContext):
     services[category][name] = {
         "id": service_id,
         "min": int(found["min"]),
-        "max": int(found["max"])
+        "max": int(found["max"]),
+        "price": float(found.get("rate", 0))
     }
 
-    await message.answer(f"✅ {name} qo‘shildi")
+    await message.answer(f"✅ {name} qo‘shildi\n💰 Narxi: {services[category][name]['price']}")
     await state.clear()
 
-# ================== DELETE SERVICE INLINE ==================
+# ================== DELETE SERVICE ==================
 @dp.message(lambda m: m.text == "❌ Xizmat o‘chirish")
 async def delete_service_menu(message: types.Message):
     if not services:
@@ -133,11 +138,8 @@ async def delete_service_menu(message: types.Message):
 
     buttons = []
     for category, cat_services in services.items():
-        row = [InlineKeyboardButton(text=f"{category} - {name}", callback_data=f"del_{category}_{name}")
-               for name in cat_services]
-        for b in row:
-            buttons.append([b])
-
+        for name in cat_services:
+            buttons.append([InlineKeyboardButton(text=f"{category} - {name}", callback_data=f"del_{category}_{name}")])
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.answer("O‘chirmoqchi bo‘lgan xizmatni tanlang:", reply_markup=keyboard)
 
@@ -151,6 +153,43 @@ async def delete_service_callback(callback: types.CallbackQuery):
         await callback.message.edit_text(f"✅ {name} xizmati o‘chirildi")
     else:
         await callback.message.edit_text("❌ Bunday xizmat topilmadi")
+
+# ================== ADD PERCENT ==================
+@dp.message(lambda m: m.text == "💹 Foiz qo‘shish")
+async def add_percent_start(message: types.Message, state: FSMContext):
+    if not services:
+        await message.answer("Hozircha xizmat yo‘q")
+        return
+    buttons = []
+    for category, cat_services in services.items():
+        for name in cat_services:
+            buttons.append([InlineKeyboardButton(text=f"{category} - {name}", callback_data=f"percent_{category}_{name}")])
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await message.answer("Foiz qo‘shmoqchi bo‘lgan xizmatni tanlang:", reply_markup=keyboard)
+
+@dp.callback_query(lambda c: c.data.startswith("percent_"))
+async def percent_service_callback(callback: types.CallbackQuery, state: FSMContext):
+    _, category, name = callback.data.split("_", 2)
+    await state.update_data(category=category, service=name)
+    await callback.message.answer("Foiz miqdorini kiriting (%):")
+    await state.set_state(AddPercent.percent)
+
+@dp.message(AddPercent.percent)
+async def apply_percent(message: types.Message, state: FSMContext):
+    try:
+        percent = float(message.text)
+    except:
+        await message.answer("❌ Iltimos raqam kiriting")
+        return
+    data = await state.get_data()
+    category = data["category"]
+    service_name = data["service"]
+    service = services[category][service_name]
+    old_price = service["price"]
+    new_price = old_price + old_price * percent / 100
+    service["price"] = round(new_price, 2)
+    await message.answer(f"✅ {service_name} narxi {old_price} ➡ {service['price']}")
+    await state.clear()
 
 # ================== USER SERVICES ==================
 @dp.message(lambda m: m.text == "🛍 Xizmatlar")
@@ -168,11 +207,11 @@ async def show_categories(message: types.Message, state: FSMContext):
             row = []
     if row:
         buttons.append(row)
-
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.answer("✅ Xizmatlarimizni tanlang:", reply_markup=keyboard)
     await state.set_state(OrderService.category)
 
+# ================== USER FLOW ==================
 @dp.callback_query(lambda c: c.data.startswith("cat_"))
 async def open_category(callback: types.CallbackQuery, state: FSMContext):
     category = callback.data.replace("cat_", "")
