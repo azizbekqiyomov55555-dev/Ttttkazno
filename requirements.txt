@@ -1,1 +1,1 @@
-pip install aiogram
+aiogram==3.4.1
