@@ -16,22 +16,28 @@ API_KEY = "aee8149aa4fe37368499c64f63193153"
 bot = Bot(token=TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-services = {}
+# ===== DATABASE (oddiy dict) =====
+services = {}  # {category: {service_name: {id, price, min, max}}}
 
-# ================= USER MENU =================
+# ===== STATES =====
+class AddService(StatesGroup):
+    category = State()
+    name = State()
+    service_id = State()
 
+class OrderService(StatesGroup):
+    category = State()
+    service = State()
+    quantity = State()
+    link = State()
+
+# ===== USER MENU =====
 user_keyboard = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="🛍 Xizmatlar"), KeyboardButton(text="📱 Nomer olish")],
-        [KeyboardButton(text="🛒 Buyurtmalarim"), KeyboardButton(text="👥 Pul ishlash")],
-        [KeyboardButton(text="💰 Hisobim"), KeyboardButton(text="💳 Hisob To'ldirish")],
-        [KeyboardButton(text="📞 Murojaat"), KeyboardButton(text="☎ Qo'llab-quvvatlash")]
-    ],
+    keyboard=[[KeyboardButton(text="🛍 Xizmatlar")]],
     resize_keyboard=True
 )
 
-# ================= ADMIN MENU =================
-
+# ===== ADMIN MENU =====
 admin_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="➕ Xizmat qo‘shish")],
@@ -40,19 +46,12 @@ admin_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ================= STATE =================
-
-class AddService(StatesGroup):
-    waiting_for_id = State()
-
-# ================= START =================
-
+# ===== START =====
 @dp.message(Command("start"))
 async def start(message: types.Message):
     await message.answer("Assalomu alaykum 👋", reply_markup=user_keyboard)
 
-# ================= ADMIN PANEL =================
-
+# ===== ADMIN =====
 @dp.message(Command("admin"))
 async def admin_panel(message: types.Message):
     if message.from_user.id == ADMIN_ID:
@@ -60,104 +59,138 @@ async def admin_panel(message: types.Message):
     else:
         await message.answer("Siz admin emassiz ❌")
 
-@dp.message(lambda m: m.text == "⬅ Ortga")
-async def back_to_user(message: types.Message):
-    await message.answer("Asosiy menyu", reply_markup=user_keyboard)
-
 @dp.message(lambda m: m.text == "➕ Xizmat qo‘shish")
-async def add_service(message: types.Message, state: FSMContext):
-    if message.from_user.id == ADMIN_ID:
-        await message.answer("Xizmat ID kiriting:")
-        await state.set_state(AddService.waiting_for_id)
+async def add_category(message: types.Message, state: FSMContext):
+    await message.answer("Kategoriya nomini kiriting (Telegram / Instagram / YouTube / TikTok):")
+    await state.set_state(AddService.category)
 
-# ================= API ORQALI XIZMAT OLISH =================
+@dp.message(AddService.category)
+async def add_name(message: types.Message, state: FSMContext):
+    await state.update_data(category=message.text)
+    await message.answer("Xizmat nomini kiriting:")
+    await state.set_state(AddService.name)
 
-@dp.message(AddService.waiting_for_id)
-async def get_service_id(message: types.Message, state: FSMContext):
+@dp.message(AddService.name)
+async def add_service_id(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("API Service ID kiriting:")
+    await state.set_state(AddService.service_id)
+
+@dp.message(AddService.service_id)
+async def save_service(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    category = data["category"]
+    name = data["name"]
     service_id = message.text
 
-    payload = {
-        "key": API_KEY,
-        "action": "services"
-    }
+    payload = {"key": API_KEY, "action": "services"}
 
     async with aiohttp.ClientSession() as session:
         async with session.post(API_URL, data=payload) as response:
-            data = await response.json()
+            all_services = await response.json()
 
-            found = None
-            for s in data:
-                if str(s["service"]) == service_id:
-                    found = s
-                    break
+    found = None
+    for s in all_services:
+        if str(s["service"]) == service_id:
+            found = s
+            break
 
-            if found:
-                services[service_id] = {
-                    "name": found["name"],
-                    "price": found["rate"],
-                    "min": found["min"],
-                    "max": found["max"]
-                }
+    if not found:
+        await message.answer("❌ Service ID topilmadi")
+        await state.clear()
+        return
 
-                await message.answer(f"✅ {found['name']} qo‘shildi")
-            else:
-                await message.answer("❌ Bunday ID topilmadi")
+    if category not in services:
+        services[category] = {}
 
+    services[category][name] = {
+        "id": service_id,
+        "price": found["rate"],
+        "min": int(found["min"]),
+        "max": int(found["max"])
+    }
+
+    await message.answer(f"✅ {name} qo‘shildi")
     await state.clear()
 
-# ================= USER XIZMATLAR =================
-
+# ===== USER ORDER =====
 @dp.message(lambda m: m.text == "🛍 Xizmatlar")
-async def show_services(message: types.Message):
+async def show_categories(message: types.Message):
     if not services:
         await message.answer("Hozircha xizmat yo‘q")
         return
 
-    text = "📋 Xizmatlar:\n\n"
-    for sid, s in services.items():
-        text += (
-            f"🆔 {sid}\n"
-            f"📌 {s['name']}\n"
-            f"💰 Narx: {s['price']}\n"
-            f"📊 Min: {s['min']} | Max: {s['max']}\n\n"
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=cat)] for cat in services.keys()],
+        resize_keyboard=True
+    )
+    await message.answer("Kategoriya tanlang:", reply_markup=keyboard)
+
+@dp.message()
+async def handle_user(message: types.Message, state: FSMContext):
+    text = message.text
+
+    # CATEGORY
+    if text in services:
+        await state.update_data(category=text)
+        keyboard = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text=s)] for s in services[text].keys()],
+            resize_keyboard=True
         )
+        await message.answer("Xizmat tanlang:", reply_markup=keyboard)
+        await state.set_state(OrderService.service)
+        return
 
-    await message.answer(text)
+    # SERVICE
+    current = await state.get_state()
+    if current == OrderService.service.state:
+        data = await state.get_data()
+        category = data["category"]
 
-# ================= QOLGAN TUGMALAR =================
+        if text in services[category]:
+            await state.update_data(service=text)
+            await message.answer("Miqdorni kiriting:")
+            await state.set_state(OrderService.quantity)
+            return
 
-@dp.message(lambda m: m.text == "📱 Nomer olish")
-async def nomer(message: types.Message):
-    await message.answer("Nomer olish bo‘limi")
+    # QUANTITY
+    if current == OrderService.quantity.state:
+        qty = int(text)
+        await state.update_data(quantity=qty)
+        await message.answer("Linkni kiriting:")
+        await state.set_state(OrderService.link)
+        return
 
-@dp.message(lambda m: m.text == "🛒 Buyurtmalarim")
-async def buyurtma(message: types.Message):
-    await message.answer("Buyurtmalarim bo‘limi")
+    # LINK
+    if current == OrderService.link.state:
+        data = await state.get_data()
+        category = data["category"]
+        service_name = data["service"]
+        qty = data["quantity"]
+        link = text
 
-@dp.message(lambda m: m.text == "👥 Pul ishlash")
-async def pul(message: types.Message):
-    await message.answer("Pul ishlash bo‘limi")
+        service = services[category][service_name]
 
-@dp.message(lambda m: m.text == "💰 Hisobim")
-async def hisob(message: types.Message):
-    await message.answer("Hisobingiz")
+        if qty < service["min"] or qty > service["max"]:
+            await message.answer("❌ Miqdor limitdan tashqarida")
+            await state.clear()
+            return
 
-@dp.message(lambda m: m.text == "💳 Hisob To'ldirish")
-async def toldirish(message: types.Message):
-    await message.answer("Hisob to‘ldirish")
+        payload = {
+            "key": API_KEY,
+            "action": "add",
+            "service": service["id"],
+            "link": link,
+            "quantity": qty
+        }
 
-@dp.message(lambda m: m.text == "📞 Murojaat")
-async def murojaat(message: types.Message):
-    await message.answer("Murojaat bo‘limi")
+        async with aiohttp.ClientSession() as session:
+            async with session.post(API_URL, data=payload) as response:
+                result = await response.json()
 
-@dp.message(lambda m: m.text == "☎ Qo'llab-quvvatlash")
-async def support(message: types.Message):
-    await message.answer("Qo‘llab-quvvatlash xizmati")
+        if "order" in result:
+            await message.answer(f"✅ Buyurtma yuborildi\nID: {result['order']}")
+        else:
+            await message.answer("❌ Buyurtma xatosi")
 
-# ================= MAIN =================
-
-async def main():
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        await state.clear()
