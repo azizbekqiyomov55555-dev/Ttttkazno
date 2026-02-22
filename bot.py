@@ -8,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # ================== CONFIG ==================
-TOKEN = "BOT_TOKENINGIZNI_QOYING"
+TOKEN = "8001146442:AAG5oPF_FmKsDZC-yaHgbNIMl8xU0IrLFzI"
 ADMIN_ID = 8537782289
 API_URL = "https://saleseen.uz/api/v2"
 API_KEY = "aee8149aa4fe37368499c64f63193153"
