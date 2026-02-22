@@ -1,435 +1,316 @@
 import asyncio
 import aiohttp
-
+import aiosqlite
+import logging
+from datetime import datetime
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
-from aiogram.types import (
-    ReplyKeyboardMarkup, KeyboardButton,
-    InlineKeyboardMarkup, InlineKeyboardButton
-)
+from aiogram.types import *
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
+TOKEN="8001146442:AAG5oPF_FmKsDZC-yaHgbNIMl8xU0IrLFzI"
+ADMIN_ID=8537782289
+API_URL="https://saleseen.uz/api/v2"
+API_KEY="16f2daabf5bf7fb4494fdffc5bcaf6bc"
 
-# ================= CONFIG =================
-TOKEN = "8001146442:AAG5oPF_FmKsDZC-yaHgbNIMl8xU0IrLFzI"
-ADMIN_ID = 8537782289
+logging.basicConfig(level=logging.INFO)
 
-API_URL = "https://saleseen.uz/api/v2"
-API_KEY = "aee8149aa4fe37368499c64f63193153"
+bot=Bot(token=TOKEN,parse_mode="HTML")
+dp=Dispatcher(storage=MemoryStorage())
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
-
-
-# ================= DATABASE (oddiy RAM) =================
-services = {}        # {category: {service_name: {id, min, max, price}}}
-cards = {}           # {card_name: card_number}
-users_balance = {}   # {user_id: balance}
-
-
-# ================= HELPERS =================
-def cb(*parts: str) -> str:
-    """callback_data uchun xavfsiz format: 'a|b|c'"""
-    return "|".join(parts)
-
-def fmt_amount(x: float) -> str:
-    """Callback va matn uchun chiroyli ko‘rinish"""
-    if float(x).is_integer():
-        return str(int(x))
-    return str(round(float(x), 2))
-
+# ================= DB =================
+async def init_db():
+    async with aiosqlite.connect("db.sqlite") as db:
+        await db.execute("""CREATE TABLE IF NOT EXISTS users(
+            user_id INTEGER PRIMARY KEY,
+            full_name TEXT,
+            balance REAL DEFAULT 0,
+            referal_from INTEGER,
+            created_at TEXT)""")
+        await db.execute("""CREATE TABLE IF NOT EXISTS services(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category TEXT,
+            name TEXT,
+            api_id TEXT,
+            price REAL,
+            percent REAL DEFAULT 0)""")
+        await db.execute("""CREATE TABLE IF NOT EXISTS orders(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            service_id INTEGER,
+            api_order_id TEXT,
+            quantity INTEGER,
+            link TEXT,
+            total REAL,
+            status TEXT,
+            created_at TEXT)""")
+        await db.commit()
 
 # ================= STATES =================
 class AddService(StatesGroup):
-    category = State()
-    name = State()
-    service_id = State()
+    category=State()
+    name=State()
+    api_id=State()
+    price=State()
 
 class AddPercent(StatesGroup):
-    category = State()
-    service = State()
-    percent = State()
+    service_id=State()
+    percent=State()
 
-class AddCard(StatesGroup):
-    name = State()
-    number = State()
+class OrderState(StatesGroup):
+    service_id=State()
+    quantity=State()
+    link=State()
 
-class TopUp(StatesGroup):
-    amount = State()
-    card = State()
-    comment = State()
-    receipt = State()
-
+class TopUpState(StatesGroup):
+    amount=State()
+    receipt=State()
 
 # ================= MENUS =================
-user_menu = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="🛍 Xizmatlar"), KeyboardButton(text="📱 Nomer olish")],
-        [KeyboardButton(text="🛒 Buyurtmalarim"), KeyboardButton(text="👥 Pul ishlash")],
-        [KeyboardButton(text="💰 Hisobim"), KeyboardButton(text="💳 Hisob To'ldirish")],
-        [KeyboardButton(text="📞 Murojaat"), KeyboardButton(text="☎ Qo'llab-quvvatlash")]
-    ],
-    resize_keyboard=True
-)
+def user_menu():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🛍 Xizmatlar")],
+            [KeyboardButton(text="💰 Hisobim"),KeyboardButton(text="💳 Hisob To‘ldirish")],
+            [KeyboardButton(text="🛒 Buyurtmalarim")],
+            [KeyboardButton(text="👥 Referal")]
+        ],resize_keyboard=True)
 
-admin_menu = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text="➕ Xizmat qo‘shish"), KeyboardButton(text="❌ Xizmat o‘chirish")],
-        [KeyboardButton(text="💹 Foiz qo‘shish"), KeyboardButton(text="💳 Karta qo‘shish")],
-        [KeyboardButton(text="⬅ Ortga")]
-    ],
-    resize_keyboard=True
-)
+def admin_menu():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="➕ Xizmat qo‘shish")],
+            [KeyboardButton(text="❌ Xizmat o‘chirish")],
+            [KeyboardButton(text="💹 Foiz qo‘shish")],
+            [KeyboardButton(text="📊 Statistika")],
+            [KeyboardButton(text="⬅ Ortga")]
+        ],resize_keyboard=True)
 
-
-# ================= START / ADMIN =================
+# ================= START =================
 @dp.message(Command("start"))
-async def start(message: types.Message):
-    await message.answer("Assalomu alaykum 👋", reply_markup=user_menu)
+async def start(message:types.Message):
+    args=message.text.split()
+    ref=None
+    if len(args)>1:
+        try: ref=int(args[1])
+        except: ref=None
+    async with aiosqlite.connect("db.sqlite") as db:
+        await db.execute("INSERT OR IGNORE INTO users VALUES(?,?,?,?,?)",
+                         (message.from_user.id,
+                          message.from_user.full_name,
+                          0,
+                          ref,
+                          datetime.now().strftime("%Y-%m-%d %H:%M")))
+        await db.commit()
+    await message.answer("Assalomu alaykum 👋",reply_markup=user_menu())
 
+# ================= ADMIN =================
 @dp.message(Command("admin"))
-async def admin_panel(message: types.Message):
-    if message.from_user.id == ADMIN_ID:
-        await message.answer("Admin panel 👑", reply_markup=admin_menu)
-    else:
-        await message.answer("❌ Siz admin emassiz")
+async def admin(message:types.Message):
+    if message.from_user.id==ADMIN_ID:
+        await message.answer("Admin panel",reply_markup=admin_menu())
 
-@dp.message(F.text == "⬅ Ortga")
-async def back_menu(message: types.Message, state: FSMContext):
-    await state.clear()
-    await message.answer("Asosiy menyu", reply_markup=user_menu)
+@dp.message(F.text=="⬅ Ortga")
+async def back(message:types.Message):
+    await message.answer("Asosiy menyu",reply_markup=user_menu())
 
+# ================= BALANCE =================
+@dp.message(F.text=="💰 Hisobim")
+async def balance(message:types.Message):
+    async with aiosqlite.connect("db.sqlite") as db:
+        cur=await db.execute("SELECT balance FROM users WHERE user_id=?",(message.from_user.id,))
+        bal=(await cur.fetchone())[0]
+    await message.answer(f"💰 Balans: <b>{bal}</b> so'm")
 
-# ================== ADMIN: KARTA QO‘SHISH =================
-@dp.message(F.text == "💳 Karta qo‘shish")
-async def add_card_start(message: types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
-        return await message.answer("❌ Siz admin emassiz")
-    await message.answer("Kartaga nom bering:")
-    await state.set_state(AddCard.name)
-
-@dp.message(AddCard.name)
-async def add_card_number(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text.strip())
-    await message.answer("Kartaning raqamini kiriting:")
-    await state.set_state(AddCard.number)
-
-@dp.message(AddCard.number)
-async def save_card(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    name = data["name"]
-    number = message.text.strip()
-    cards[name] = number
-    await message.answer(f"✅ {name} kartasi qo‘shildi:\n`{number}`", parse_mode="Markdown")
-    await state.clear()
-
-
-# ================== ADMIN: XIZMAT QO‘SHISH =================
-@dp.message(F.text == "➕ Xizmat qo‘shish")
-async def add_category(message: types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
-        return await message.answer("❌ Siz admin emassiz")
-    await message.answer("Kategoriya nomini kiriting (Telegram / Instagram / YouTube / TikTok):")
+# ================= ADD SERVICE =================
+@dp.message(F.text=="➕ Xizmat qo‘shish")
+async def add_s1(m:types.Message,state:FSMContext):
+    if m.from_user.id!=ADMIN_ID:return
+    await m.answer("Kategoriya:")
     await state.set_state(AddService.category)
 
 @dp.message(AddService.category)
-async def add_name(message: types.Message, state: FSMContext):
-    await state.update_data(category=message.text.strip())
-    await message.answer("Xizmat nomini kiriting:")
+async def add_s2(m,state):
+    await state.update_data(category=m.text)
+    await m.answer("Nomi:")
     await state.set_state(AddService.name)
 
 @dp.message(AddService.name)
-async def add_service_id(message: types.Message, state: FSMContext):
-    await state.update_data(name=message.text.strip())
-    await message.answer("API Service ID kiriting:")
-    await state.set_state(AddService.service_id)
+async def add_s3(m,state):
+    await state.update_data(name=m.text)
+    await m.answer("API ID:")
+    await state.set_state(AddService.api_id)
 
-@dp.message(AddService.service_id)
-async def save_service(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    category = data["category"]
-    name = data["name"]
-    service_id = message.text.strip()
+@dp.message(AddService.api_id)
+async def add_s4(m,state):
+    await state.update_data(api_id=m.text)
+    await m.answer("Narx:")
+    await state.set_state(AddService.price)
 
-    payload = {"key": API_KEY, "action": "services"}
+@dp.message(AddService.price)
+async def add_s5(m,state):
+    d=await state.get_data()
+    async with aiosqlite.connect("db.sqlite") as db:
+        await db.execute("INSERT INTO services(category,name,api_id,price) VALUES(?,?,?,?)",
+                         (d["category"],d["name"],d["api_id"],float(m.text)))
+        await db.commit()
+    await m.answer("Qo‘shildi")
+    await state.clear()
 
-    try:
+# ================= DELETE =================
+@dp.message(F.text=="❌ Xizmat o‘chirish")
+async def del_menu(m):
+    if m.from_user.id!=ADMIN_ID:return
+    async with aiosqlite.connect("db.sqlite") as db:
+        cur=await db.execute("SELECT id,name FROM services")
+        rows=await cur.fetchall()
+    kb=[[InlineKeyboardButton(text=r[1],callback_data=f"del_{r[0]}")]for r in rows]
+    await m.answer("Tanlang:",reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+
+@dp.callback_query(F.data.startswith("del_"))
+async def delete(cb):
+    sid=cb.data.split("_")[1]
+    async with aiosqlite.connect("db.sqlite") as db:
+        await db.execute("DELETE FROM services WHERE id=?",(sid,))
+        await db.commit()
+    await cb.message.edit_text("O‘chirildi")
+
+# ================= SHOW SERVICES =================
+@dp.message(F.text=="🛍 Xizmatlar")
+async def show(m):
+    async with aiosqlite.connect("db.sqlite") as db:
+        cur=await db.execute("SELECT id,name,price FROM services")
+        rows=await cur.fetchall()
+    kb=[[InlineKeyboardButton(text=f"{r[1]}-{r[2]}",callback_data=f"order_{r[0]}")]for r in rows]
+    await m.answer("Tanlang:",reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+
+# ================= ORDER =================
+@dp.callback_query(F.data.startswith("order_"))
+async def o1(cb,state):
+    await state.update_data(service_id=cb.data.split("_")[1])
+    await cb.message.answer("Miqdor:")
+    await state.set_state(OrderState.quantity)
+
+@dp.message(OrderState.quantity)
+async def o2(m,state):
+    await state.update_data(quantity=int(m.text))
+    await m.answer("Link:")
+    await state.set_state(OrderState.link)
+
+@dp.message(OrderState.link)
+async def o3(m,state):
+    d=await state.get_data()
+    async with aiosqlite.connect("db.sqlite") as db:
+        cur=await db.execute("SELECT name,price,api_id FROM services WHERE id=?",(d["service_id"],))
+        s=await cur.fetchone()
+        total=s[1]*d["quantity"]
+        cur=await db.execute("SELECT balance FROM users WHERE user_id=?",(m.from_user.id,))
+        bal=(await cur.fetchone())[0]
+        if bal<total:
+            await m.answer("Balans yetarli emas")
+            await state.clear()
+            return
+        payload={"key":API_KEY,"action":"add","service":s[2],"link":m.text,"quantity":d["quantity"]}
         async with aiohttp.ClientSession() as session:
-            async with session.post(API_URL, data=payload, timeout=30) as response:
-                all_services = await response.json()
-    except Exception as e:
-        await message.answer(f"❌ API bilan ulanishda xatolik: {e}")
-        await state.clear()
-        return
-
-    found = None
-    for s in all_services:
-        if str(s.get("service")) == str(service_id):
-            found = s
-            break
-
-    if not found:
-        await message.answer("❌ Service ID topilmadi")
-        await state.clear()
-        return
-
-    services.setdefault(category, {})
-    services[category][name] = {
-        "id": str(service_id),
-        "min": int(found.get("min", 0)),
-        "max": int(found.get("max", 0)),
-        "price": float(found.get("rate", 0))
-    }
-
-    await message.answer(
-        f"✅ Xizmat qo‘shildi:\n"
-        f"📦 Kategoriya: {category}\n"
-        f"🛍 Xizmat: {name}\n"
-        f"🆔 ID: {service_id}\n"
-        f"📉 Min: {services[category][name]['min']}\n"
-        f"📈 Max: {services[category][name]['max']}\n"
-        f"💰 Narx: {services[category][name]['price']}"
-    )
+            async with session.post(API_URL,data=payload) as r:
+                res=await r.json()
+        await db.execute("UPDATE users SET balance=balance-? WHERE user_id=?",(total,m.from_user.id))
+        await db.execute("""INSERT INTO orders(user_id,service_id,api_order_id,
+                          quantity,link,total,status,created_at)
+                          VALUES(?,?,?,?,?,?,?,?)""",
+                          (m.from_user.id,d["service_id"],res.get("order"),
+                           d["quantity"],m.text,total,"Yuborildi",
+                           datetime.now().strftime("%Y-%m-%d %H:%M")))
+        await db.commit()
+    await m.answer("Buyurtma qabul qilindi")
     await state.clear()
 
+# ================= MY ORDERS =================
+@dp.message(F.text=="🛒 Buyurtmalarim")
+async def my_orders(m):
+    async with aiosqlite.connect("db.sqlite") as db:
+        cur=await db.execute("""SELECT s.name,o.quantity,o.total,o.status
+                                FROM orders o JOIN services s
+                                ON o.service_id=s.id
+                                WHERE o.user_id=?""",(m.from_user.id,))
+        rows=await cur.fetchall()
+    txt="Buyurtmalar:\n"
+    for r in rows:
+        txt+=f"{r[0]} | {r[1]} | {r[2]} | {r[3]}\n"
+    await m.answer(txt)
 
-# ================== ADMIN: XIZMAT O‘CHIRISH =================
-@dp.message(F.text == "❌ Xizmat o‘chirish")
-async def delete_service_menu(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return await message.answer("❌ Siz admin emassiz")
+# ================= REFERAL =================
+@dp.message(F.text=="👥 Referal")
+async def ref(m):
+    link=f"https://t.me/{(await bot.get_me()).username}?start={m.from_user.id}"
+    await m.answer(f"Referal link:\n{link}")
 
-    if not services:
-        await message.answer("Hozircha xizmat yo‘q")
-        return
+# ================= PAYMENT (MANUAL) =================
+@dp.message(F.text=="💳 Hisob To‘ldirish")
+async def t1(m,state):
+    await m.answer("Miqdor:")
+    await state.set_state(TopUpState.amount)
 
-    buttons = []
-    for category, cat_services in services.items():
-        for name in cat_services:
-            buttons.append([
-                InlineKeyboardButton(
-                    text=f"{category} - {name}",
-                    callback_data=cb("del", category, name)
-                )
-            ])
+@dp.message(TopUpState.amount)
+async def t2(m,state):
+    await state.update_data(amount=float(m.text))
+    await m.answer("Chek rasm yuboring:")
+    await state.set_state(TopUpState.receipt)
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await message.answer("O‘chirmoqchi bo‘lgan xizmatni tanlang:", reply_markup=keyboard)
-
-@dp.callback_query(F.data.startswith("del|"))
-async def delete_service_callback(callback: types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("Admin emas!", show_alert=True)
-        return
-
-    _, category, name = callback.data.split("|", 2)
-
-    if category in services and name in services[category]:
-        del services[category][name]
-        if not services[category]:
-            del services[category]
-        await callback.message.edit_text(f"✅ `{name}` xizmati o‘chirildi", parse_mode="Markdown")
-    else:
-        await callback.message.edit_text("❌ Bunday xizmat topilmadi")
-
-    await callback.answer()
-
-
-# ================== ADMIN: FOIZ QO‘SHISH =================
-@dp.message(F.text == "💹 Foiz qo‘shish")
-async def add_percent_start(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return await message.answer("❌ Siz admin emassiz")
-
-    if not services:
-        await message.answer("Hozircha xizmat yo‘q")
-        return
-
-    buttons = []
-    for category, cat_services in services.items():
-        for name in cat_services:
-            buttons.append([
-                InlineKeyboardButton(
-                    text=f"{category} - {name}",
-                    callback_data=cb("percent", category, name)
-                )
-            ])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await message.answer("Foiz qo‘shmoqchi bo‘lgan xizmatni tanlang:", reply_markup=keyboard)
-
-@dp.callback_query(F.data.startswith("percent|"))
-async def percent_service_callback(callback: types.CallbackQuery, state: FSMContext):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("Admin emas!", show_alert=True)
-        return
-
-    _, category, name = callback.data.split("|", 2)
-    await state.update_data(category=category, service=name)
-
-    await callback.message.answer("Foiz miqdorini kiriting (%):")
-    await state.set_state(AddPercent.percent)
-    await callback.answer()
-
-@dp.message(AddPercent.percent)
-async def apply_percent(message: types.Message, state: FSMContext):
-    try:
-        percent = float(message.text.replace(",", "."))
-    except:
-        await message.answer("❌ Iltimos raqam kiriting")
-        return
-
-    data = await state.get_data()
-    category = data["category"]
-    service_name = data["service"]
-
-    if category not in services or service_name not in services[category]:
-        await message.answer("❌ Xizmat topilmadi (o‘chirilgan bo‘lishi mumkin)")
-        await state.clear()
-        return
-
-    service = services[category][service_name]
-    old_price = float(service["price"])
-    new_price = old_price + (old_price * percent / 100.0)
-    service["price"] = round(new_price, 2)
-
-    await message.answer(f"✅ {service_name}\n💰 {old_price} ➡ {service['price']}")
+@dp.message(TopUpState.receipt,F.photo)
+async def t3(m,state):
+    d=await state.get_data()
+    kb=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Tasdiq",callback_data=f"pay_{m.from_user.id}_{d['amount']}")]
+    ])
+    await bot.send_photo(ADMIN_ID,m.photo[-1].file_id,
+                         caption=f"{m.from_user.id} {d['amount']}",reply_markup=kb)
+    await m.answer("Admin tasdiqlaydi")
     await state.clear()
 
+@dp.callback_query(F.data.startswith("pay_"))
+async def pay(cb):
+    _,uid,amount=cb.data.split("_")
+    async with aiosqlite.connect("db.sqlite") as db:
+        await db.execute("UPDATE users SET balance=balance+? WHERE user_id=?",(float(amount),int(uid)))
+        await db.commit()
+    await bot.send_message(int(uid),"Balans to‘ldirildi")
+    await cb.message.edit_caption(cb.message.caption+"\nTasdiqlandi")
 
-# ================== USER: HISOB TO'LDIRISH =================
-@dp.message(F.text == "💳 Hisob To'ldirish")
-async def topup_start(message: types.Message, state: FSMContext):
-    await message.answer("Qancha miqdorda to‘ldirmoqchisiz?")
-    await state.set_state(TopUp.amount)
+# ================= STAT =================
+@dp.message(F.text=="📊 Statistika")
+async def stat(m):
+    if m.from_user.id!=ADMIN_ID:return
+    async with aiosqlite.connect("db.sqlite") as db:
+        u=(await (await db.execute("SELECT COUNT(*) FROM users")).fetchone())[0]
+        o=(await (await db.execute("SELECT COUNT(*) FROM orders")).fetchone())[0]
+        s=(await (await db.execute("SELECT SUM(total) FROM orders")).fetchone())[0]
+    await m.answer(f"Users:{u}\nOrders:{o}\nSavdo:{s or 0}")
 
-@dp.message(TopUp.amount)
-async def topup_card(message: types.Message, state: FSMContext):
-    try:
-        amount = float(message.text.replace(",", "."))
-        if amount <= 0:
-            raise ValueError()
-    except:
-        await message.answer("❌ Iltimos to‘g‘ri raqam kiriting")
-        return
+# ================= AUTO STATUS =================
+async def auto_status():
+    while True:
+        await asyncio.sleep(60)
+        async with aiosqlite.connect("db.sqlite") as db:
+            cur=await db.execute("SELECT id,api_order_id FROM orders WHERE status='Yuborildi'")
+            rows=await cur.fetchall()
+            for r in rows:
+                payload={"key":API_KEY,"action":"status","order":r[1]}
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(API_URL,data=payload) as resp:
+                        res=await resp.json()
+                if res.get("status"):
+                    await db.execute("UPDATE orders SET status=? WHERE id=?",
+                                     (res.get("status"),r[0]))
+            await db.commit()
 
-    await state.update_data(amount=amount)
-
-    if not cards:
-        await message.answer("❌ Hozircha karta mavjud emas, admin bilan bog‘laning")
-        await state.clear()
-        return
-
-    buttons = []
-    for name in cards.keys():
-        buttons.append([
-            InlineKeyboardButton(text=name, callback_data=cb("card", name))
-        ])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await message.answer("To‘lov qilish uchun kartani tanlang:", reply_markup=keyboard)
-
-@dp.callback_query(F.data.startswith("card|"))
-async def topup_comment(callback: types.CallbackQuery, state: FSMContext):
-    _, card_name = callback.data.split("|", 1)
-    await state.update_data(card=card_name)
-
-    await callback.message.answer("Izoh qoldiring (ixtiyoriy):\nAgar izoh yo‘q bo‘lsa `-` yuboring.")
-    await state.set_state(TopUp.comment)
-    await callback.answer()
-
-@dp.message(TopUp.comment)
-async def topup_receipt(message: types.Message, state: FSMContext):
-    comment = message.text.strip()
-    await state.update_data(comment=comment)
-
-    await message.answer("To‘lov чекини yuboring (rasm sifatida):")
-    await state.set_state(TopUp.receipt)
-
-# ✅ Aiogram 3: PHOTO filter
-@dp.message(TopUp.receipt, F.photo)
-async def send_to_admin(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    user_id = message.from_user.id
-    user_name = message.from_user.full_name
-
-    amount = float(data["amount"])
-    card_name = data["card"]
-    comment = data.get("comment", "-")
-    receipt_file_id = message.photo[-1].file_id
-
-    # Admin tasdiqlash uchun inline tugmalar
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✅ Tasdiqlash",
-                    callback_data=cb("approve", str(user_id), fmt_amount(amount))
-                ),
-                InlineKeyboardButton(
-                    text="❌ Bekor qilish",
-                    callback_data=cb("reject", str(user_id), fmt_amount(amount))
-                )
-            ]
-        ]
-    )
-
-    text = (
-        "💳 To‘lov kelib tushdi!\n"
-        f"👤 Foydalanuvchi: {user_name}\n"
-        f"🆔 ID: {user_id}\n"
-        f"💰 Miqdor: {fmt_amount(amount)} so‘m\n"
-        f"💳 Karta: {card_name}\n"
-        f"📝 Izoh: {comment}"
-    )
-
-    await bot.send_photo(
-        chat_id=ADMIN_ID,
-        photo=receipt_file_id,
-        caption=text,
-        reply_markup=keyboard
-    )
-
-    await message.answer("✅ To‘lovingiz adminga yuborildi. 12 soat ichida tasdiqlanadi.")
-    await state.clear()
-
-# Agar user rasm emas, boshqa narsa yuborsa:
-@dp.message(TopUp.receipt)
-async def receipt_not_photo(message: types.Message):
-    await message.answer("❌ Iltimos чекni rasm (PHOTO) ko‘rinishida yuboring.")
-
-
-# ================== ADMIN: TASDIQLASH / BEKOR QILISH =================
-@dp.callback_query(F.data.startswith("approve|") | F.data.startswith("reject|"))
-async def admin_approval(callback: types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
-        await callback.answer("Admin emas!", show_alert=True)
-        return
-
-    action, user_id_str, amount_str = callback.data.split("|", 2)
-    user_id = int(user_id_str)
-    amount = float(amount_str)
-
-    if action == "approve":
-        users_balance[user_id] = users_balance.get(user_id, 0) + amount
-
-        await bot.send_message(user_id, f"✅ Hisobingiz {fmt_amount(amount)} so‘mga to‘ldirildi.")
-        # Caption update
-        if callback.message.caption:
-            await callback.message.edit_caption(callback.message.caption + "\n✅ Tasdiqlandi")
-        await callback.answer("Tasdiqlandi ✅")
-    else:
-        await bot.send_message(user_id, "❌ Admin to‘lovni qabul qilmadi.")
-        if callback.message.caption:
-            await callback.message.edit_caption(callback.message.caption + "\n❌ Bekor qilindi")
-        await callback.answer("Bekor qilindi ❌")
-
-
-# ================== MAIN =================
+# ================= MAIN =================
 async def main():
+    await init_db()
+    asyncio.create_task(auto_status())
     await dp.start_polling(bot)
 
-if __name__ == "__main__":
+if __name__=="__main__":
     asyncio.run(main())
