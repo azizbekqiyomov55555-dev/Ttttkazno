@@ -1,0 +1,25 @@
+# Fly.io konfiguratsiyasi — Telegram bot (aiogram polling)
+# Ilovangiz nomini o'zgartiring: app = "sizning-bot-nomingiz"
+app = "obmen-bot"
+primary_region = "fra"  # Frankfurt (Yevropa). Boshqa: ams, waw, sin, sjc
+
+[build]
+
+[env]
+  TZ = "Asia/Tashkent"
+
+# Polling bot — HTTP portga muhtoj emas, shuning uchun [http_service] yo'q.
+# Doimo ishlab turishi uchun auto_stop o'chirilgan.
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpus = 1
+
+[processes]
+  app = "python obmen_bot.py"
+
+# JSON fayllar (users, orders, ...) saqlanishi uchun persistent volume
+[mounts]
+  source = "bot_data"
+  destination = "/app/bot_data"
